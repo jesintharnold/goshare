@@ -1,40 +1,33 @@
 package main
 
 import (
-	"fmt"
 	"goshare/internal/discovery"
 	"log"
 	"os"
-	"strconv"
-	"time"
+	"os/signal"
+	"strings"
+	"syscall"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run main.go <port>")
-	}
+    if len(os.Args) < 2 {
+        log.Fatal("Usage: program [E/D] (E for Emitter, D for Discoverer)")
+    }
 
-	// Convert port from string to integer
-	port, err := strconv.Atoi(os.Args[1])
-	if err != nil {
-		log.Fatalf("Error converting port to integer: %v", err)
-	}
-	fmt.Println("Port:", port)
+    stopchan:=make(chan os.Signal,1)
+	signal.Notify(stopchan,os.Interrupt,syscall.SIGTERM)
 
-	go discovery.EmitPeerDiscovery(port)
-	stop := make(chan bool)
-
-	go func() {
-		for {
-			peers := discovery.DiscoverPeers()
-			fmt.Printf("Discovered %d peers:\n", len(peers))
-			for _, peer := range peers {
-				fmt.Printf("- Host: %s, IP: %v, Port: %d\n",
-					peer.Host, peer.AddrV4, peer.Port)
-			}
-			time.Sleep(2 * time.Second)
-		}
-	}()
-
-	<-stop
+    role := strings.ToUpper(os.Args[1])
+    switch role {
+    case "E":
+        log.Println("Starting in Emitter mode...")
+        go discovery.EmitPeerDiscovery(stopchan)
+    case "D":
+        log.Println("Starting in Discoverer mode...")
+        go discovery.DiscoverPeers(stopchan)
+    default:
+        log.Fatal("Invalid role. Use 'E' for Emitter or 'D' for Discoverer")
+    }
+    <-stopchan
+    log.Println("Shutting down goshare application.")
 }

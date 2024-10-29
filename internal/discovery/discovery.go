@@ -1,52 +1,51 @@
 package discovery
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"os"
-	"time"
-
-	"github.com/hashicorp/mdns"
+	"github.com/grandcat/zeroconf"
 )
 
-func EmitPeerDiscovery(port int) {
-	// const port = 7890
-	const serviceName = "_file-transfer._tcp"
+func EmitPeerDiscovery(shutdown <- chan os.Signal) {
+	const port = 42424
+	const serviceName = "_filetransfer._tcp"
 	hostname, err := os.Hostname()
 	if err != nil {
 		log.Fatalf("Failed to get hostname : %v", err)
 	}
-	info := []string{fmt.Sprintf("Emit peer discovery on %s", hostname)}
-	service, _ := mdns.NewMDNSService(hostname, serviceName, "", "", port, nil, info)
-	config := &mdns.Config{
-		Zone: service,
+	//info := []string{fmt.Sprintf("Emit peer discovery on %s", hostname)}
+	server, err := zeroconf.Register(hostname, serviceName, "local.", port, []string{"txtv=0", "lo=1", "la=2"}, nil)
+	log.Println("Peer Discovery beacon started")
+	if err != nil {
+		panic(err)
 	}
-	server, _ := mdns.NewServer(config)
-
 	defer server.Shutdown()
-	fmt.Println("Peer Discovery beacon started")
+	<- shutdown
 }
 
-func DiscoverPeers() []*mdns.ServiceEntry {
-	const serviceName = "_file-transfer._tcp"
-	peerChan := make(chan *mdns.ServiceEntry, 10)
-	var peerentries []*mdns.ServiceEntry
-
+func DiscoverPeers(shutdown <- chan os.Signal) {
+	const serviceName = "_filetransfer._tcp"
+	resolver, err := zeroconf.NewResolver(nil)
+	if err != nil {
+		log.Fatalln("Failed to initialize resolver:", err.Error())
+	}
+	entries := make(chan *zeroconf.ServiceEntry)
 	go func() {
-		for peer := range peerChan {
-			peerentries = append(peerentries, peer)
+		for entry := range entries {
+			// log.Println(entry)
+			log.Printf("Discovered peer: %s - %s\n", entry.HostName, entry.AddrIPv4)
 		}
 	}()
-
-	params := mdns.DefaultParams(serviceName)
-	params.DisableIPv6 = true
-	params.Entries = peerChan
-	params.Timeout = 1 * time.Second
-	params.Domain = "local."
-	err := mdns.Query(params)
+	
+	disparentctx,disparentcancel:=context.WithCancel(context.Background())
+	defer disparentcancel()
+	log.Println("Alive Discovery")
+	err = resolver.Browse(disparentctx, serviceName, "local.", entries)
 	if err != nil {
-		log.Printf("Error while discovering peers: %v", err)
+		log.Fatalln("Failed to browse:", err.Error())
 	}
-	close(peerChan)
-	return peerentries
+	<- shutdown
+	log.Println("Shutting down peer discovery.")
+	close(entries)
 }
