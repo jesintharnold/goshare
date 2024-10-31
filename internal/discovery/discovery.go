@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
+
 	"github.com/grandcat/zeroconf"
 )
 
@@ -33,8 +35,21 @@ func DiscoverPeers(shutdown <- chan os.Signal) {
 	entries := make(chan *zeroconf.ServiceEntry)
 	go func() {
 		for entry := range entries {
-			// log.Println(entry)
-			log.Printf("Discovered peer: %s - %s\n", entry.HostName, entry.AddrIPv4)
+			peer := PeerInfo{
+				ID:        extractID(entry.Instance),
+				Name:      entry.Instance,
+				Port:      entry.Port,
+			}
+			
+			if len(entry.AddrIPv4) > 0 {
+				peer.IPAddress = entry.AddrIPv4[0].String()
+			} else if len(entry.AddrIPv6) > 0 {
+				peer.IPAddress = entry.AddrIPv6[0].String()
+			}
+
+			if peer.IPAddress != "" && peer.ID != "" {
+				log.Printf("Discovered peer: %v",peer)
+			}
 		}
 	}()
 	
@@ -48,4 +63,15 @@ func DiscoverPeers(shutdown <- chan os.Signal) {
 	<- shutdown
 	log.Println("Shutting down peer discovery.")
 	close(entries)
+}
+
+func extractID(instance string) string {
+	parts := strings.Split(instance, "-")
+	if len(parts) >= 2 {
+		// Get the last part which should contain the ID
+		idPart := parts[len(parts)-1]
+		// Remove any service suffix
+		return strings.Split(idPart, ".")[0]
+	}
+	return ""
 }
