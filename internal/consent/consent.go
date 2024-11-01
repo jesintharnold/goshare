@@ -7,7 +7,6 @@ import (
 	"net"
 )
 
-// Type of consent request, e.g., "INITIAL_CONNECTION", "FILE_TRANSFER"
 type CONSENT int
 
 const (
@@ -87,6 +86,7 @@ func (cs *ConsentService) HandleIncomingConsent() {
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(&response); err != nil {
 		log.Printf("Failed to send consent response: %v", err)
+		return
 	}
 
 	if consentGranted {

@@ -9,7 +9,7 @@ import (
 	"github.com/grandcat/zeroconf"
 )
 
-func EmitPeerDiscovery(shutdown <- chan os.Signal) {
+func EmitPeerDiscovery(ctx context.Context) {
 	const port = 42424
 	const serviceName = "_filetransfer._tcp"
 	hostname, err := os.Hostname()
@@ -23,10 +23,11 @@ func EmitPeerDiscovery(shutdown <- chan os.Signal) {
 		panic(err)
 	}
 	defer server.Shutdown()
-	<- shutdown
+	<-ctx.Done()
+	log.Println("Shutting down beacon")
 }
 
-func DiscoverPeers(shutdown <- chan os.Signal) {
+func DiscoverPeers(ctx context.Context) {
 	const serviceName = "_filetransfer._tcp"
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -36,11 +37,10 @@ func DiscoverPeers(shutdown <- chan os.Signal) {
 	go func() {
 		for entry := range entries {
 			peer := PeerInfo{
-				ID:        extractID(entry.Instance),
-				Name:      entry.Instance,
-				Port:      entry.Port,
+				ID:   extractID(entry.Instance),
+				Name: entry.Instance,
+				Port: entry.Port,
 			}
-			
 			if len(entry.AddrIPv4) > 0 {
 				peer.IPAddress = entry.AddrIPv4[0].String()
 			} else if len(entry.AddrIPv6) > 0 {
@@ -48,21 +48,19 @@ func DiscoverPeers(shutdown <- chan os.Signal) {
 			}
 
 			if peer.IPAddress != "" && peer.ID != "" {
-				log.Printf("Discovered peer: %v",peer)
+				log.Printf("Discovered peer: %v", peer)
 			}
 		}
 	}()
-	
-	disparentctx,disparentcancel:=context.WithCancel(context.Background())
-	defer disparentcancel()
-	log.Println("Alive Discovery")
-	err = resolver.Browse(disparentctx, serviceName, "local.", entries)
+
+	discoverCtx, discoverCancel := context.WithCancel(ctx)
+	defer discoverCancel()
+	err = resolver.Browse(discoverCtx, serviceName, "local.", entries)
 	if err != nil {
 		log.Fatalln("Failed to browse:", err.Error())
 	}
-	<- shutdown
+	<-ctx.Done()
 	log.Println("Shutting down peer discovery.")
-	close(entries)
 }
 
 func extractID(instance string) string {
