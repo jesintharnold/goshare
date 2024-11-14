@@ -35,14 +35,16 @@ func (ts *TransferService) ConnectToPeer() {
 	ts.Session = append(ts.Session, fileCon)
 	fmt.Printf("File Transfer struct %v", &ts.Session)
 
-	consentService := &consent.ConsentService{Conn: conn}
+	consentService := &consent.ConsentService{Conn: conn, Ctx: ts.Ctx}
 	consentMsg := consent.ConsentMessage{
 		Type: consent.INITIAL_CONNECTION,
 		Metadata: map[string]string{
 			"Name": "Allow me mother fucker",
 		},
 	}
-	consentService.RequestConsent(&consentMsg)
+	consentService.RequestConsent(&consentMsg) // Get the response output
+	//If we are able to consent is given then establish the QUIC-connection for sharing the files
+	
 	<-ts.Ctx.Done()
 	log.Println("Context cancelled, closing connection")
 }
@@ -69,7 +71,7 @@ func (ts *TransferService) ListenToPeer() {
 			log.Printf("Connection accepted from %v", conn.RemoteAddr())
 			go func(conn net.Conn) {
 				defer conn.Close()
-				consentService := &consent.ConsentService{Conn: conn}
+				consentService := &consent.ConsentService{Conn: conn, Ctx: ts.Ctx}
 				consentService.HandleIncomingConsent()
 			}(conn)
 		}

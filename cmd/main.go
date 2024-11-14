@@ -52,3 +52,40 @@ func main() {
 	cancel()
 	log.Println("Shutting down goshare application.")
 }
+
+// package main
+
+// import (
+// 	"fmt"
+// 	"os"
+// 	"strings"
+// )
+
+// func main() {
+// 	fmt.Print("Type something: ")
+// 	var input = make([]byte, 100) // Allocate buffer
+// 	var storage = make([]string, 0)
+
+// 	for {
+// 		n, err := os.Stdin.Read(input)
+// 		if err != nil {
+// 			fmt.Println("Error reading input:", err)
+// 			return
+// 		}
+
+// 		words := strings.Split(strings.TrimSpace(string(input[:n])), " ")
+
+// 		fmt.Println("You typed:", string(input[:n]))
+
+// 		if strings.TrimSpace(string(input[:n])) == "exit" {
+// 			break
+// 		} else {
+// 			storage = append(storage, words...)
+// 		}
+
+// 	}
+
+// 	for index, word := range storage {
+// 		fmt.Printf("Word: %s, Index: %d\n", word, index)
+// 	}
+// }

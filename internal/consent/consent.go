@@ -1,6 +1,7 @@
 package consent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -25,6 +26,7 @@ type ConsentResponse struct {
 
 type ConsentService struct {
 	Conn net.Conn
+	Ctx  context.Context
 }
 
 func (cs *ConsentService) RequestConsent(msg *ConsentMessage) {
@@ -56,6 +58,9 @@ func (cs *ConsentService) RequestConsent(msg *ConsentMessage) {
 		}
 	case err := <-errorChan:
 		log.Printf("Failed to receive consent response: %v", err)
+
+	case <-cs.Ctx.Done():
+		log.Println("Consent request cancelled.")
 	}
 }
 
@@ -94,4 +99,5 @@ func (cs *ConsentService) HandleIncomingConsent() {
 	} else {
 		log.Println("Consent denied.")
 	}
+
 }

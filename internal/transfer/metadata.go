@@ -6,8 +6,8 @@ import (
 )
 
 type FileInfo struct {
-	Filename string // filename with extension
-	Size     int64  // bytes totatl
+	Filename string `json:"filename"` //
+	Size     int64  `json:"size"`     // In bytes
 }
 
 type TransferStatus int
