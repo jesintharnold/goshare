@@ -31,12 +31,12 @@ type Fileshare struct {
 func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
 	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
 
-	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
-	if err != nil {
-		log.Printf("Erro loading certificates : %v", err)
-	}
+	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
+	// if err != nil {
+	// 	log.Printf("Erro loading certificates : %v", err)
+	// }
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{certificate},
+		// Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true,
 	}
 
@@ -151,6 +151,7 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 	}
 
 	listener, err := quic.ListenAddr(listenAddr, tlsConfig, nil)
+	log.Println("Listener Address - %v", listener.Addr())
 	if err != nil {
 		log.Printf("Error while attempting to listen on QUIC : %s  %v", peeraddress, err)
 		return nil, err
@@ -173,7 +174,7 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 				log.Printf("Failed to accept QUIC connection: %v", err)
 				continue
 			}
-			log.Printf("Connection accepted from %v", peeraddress)
+			log.Printf("Connection accepted from %v", quiccon.RemoteAddr())
 
 			// After accepting connecting connection now we need to look for new streams
 			go func(quiccon quic.Connection) {
