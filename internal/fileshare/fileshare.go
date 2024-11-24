@@ -40,8 +40,6 @@ func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
 	}
 	conn, err := quic.DialAddr(fs.ctx, peeraddress, tlsConfig, nil)
 
-	// log.Println("Connect to peer - %s", peeraddress)
-
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
 		return nil, err
@@ -131,6 +129,8 @@ func (fs *Fileshare) SendFile(filePath string) error {
 }
 func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interface{}, error) {
 	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
+	log.Printf("Listening for incoming QUIC connections - %s", peeraddress)
+
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
 	if err != nil {
 		log.Printf("Error loading certificates : %v", err)
@@ -149,13 +149,7 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 
 	fs.ctx = ctx
 	fs.sessionmanager = NewSession(fs.ctx)
-
-	if err != nil {
-		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
-		return nil, err
-	}
 	defer listener.Close()
-	log.Printf("Listening for incoming QUIC connections - %s", peeraddress)
 
 	//use loop to listen and accept incoming connections
 	for {
@@ -169,7 +163,7 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 				log.Printf("Failed to accept QUIC connection: %v", err)
 				continue
 			}
-			log.Printf("Connection accepted from %v", quiccon.RemoteAddr())
+			log.Printf("Connection accepted from %v", peeraddress)
 
 			// After accepting connecting connection now we need to look for new streams
 			go func(quiccon quic.Connection) {
@@ -184,11 +178,11 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 func (fs *Fileshare) handleIncomingStreams(quiccon quic.Connection) {
 	for {
 		stream, err := quiccon.AcceptStream(fs.ctx)
+		log.Printf("Accepting QUIC connections, Address - %s Stream - %v", quiccon.RemoteAddr(), stream.StreamID())
 		if err != nil {
 			log.Printf("Failed to accept QUIC connection: %v", err)
 			continue
 		}
-
 		err = fs.receiveFile(stream)
 		if err != nil {
 			log.Printf("Error during file receive - %s, %v", quiccon.RemoteAddr(), stream.StreamID())

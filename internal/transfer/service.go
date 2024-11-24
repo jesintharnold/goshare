@@ -147,12 +147,17 @@ func (pm *PeerManager) ListenToPeer() {
 			}
 			log.Printf("Connection accepted from %v", conn.RemoteAddr())
 
+			ipaddress, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+			if err != nil {
+				fmt.Printf("Error while extracting IP address for quic connection %v", err)
+			}
+
 			//Create a new PeerConnection object
 			pm.peerlock.Lock()
-			pm.activepeers[conn.RemoteAddr().String()] = NewPeerConnection("123", "jesinth-1", conn.RemoteAddr().String(), conn)
+			pm.activepeers[ipaddress] = NewPeerConnection("123", "jesinth-1", ipaddress, conn)
 			pm.peerlock.Unlock()
 
-			go pm.activepeers[conn.RemoteAddr().String()].HandleIncomingCon()
+			go pm.activepeers[ipaddress].HandleIncomingCon()
 		}
 	}
 }
