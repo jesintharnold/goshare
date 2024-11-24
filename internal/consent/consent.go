@@ -24,16 +24,15 @@ type ConsentResponse struct {
 	Accepted bool
 }
 
-type ConsentService struct {
+type Consent struct {
 	Conn net.Conn
 	Ctx  context.Context
 }
 
-func (cs *ConsentService) RequestConsent(msg *ConsentMessage) {
+func (cs *Consent) RequestConsent(msg *ConsentMessage) (consent bool, err error) {
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(msg); err != nil {
-		log.Printf("failed to send consent request: %v", err)
-		return
+		return false, fmt.Errorf("failed to send consent request: %v", err)
 	}
 
 	responseChan := make(chan ConsentResponse)
@@ -43,7 +42,7 @@ func (cs *ConsentService) RequestConsent(msg *ConsentMessage) {
 		var response ConsentResponse
 		decoder := json.NewDecoder(cs.Conn)
 		if err := decoder.Decode(&response); err != nil {
-			errorChan <- err
+			errorChan <- fmt.Errorf("failed to decode consent response: %w", err)
 			return
 		}
 		responseChan <- response
@@ -51,25 +50,25 @@ func (cs *ConsentService) RequestConsent(msg *ConsentMessage) {
 
 	select {
 	case response := <-responseChan:
-		if !response.Accepted {
-			log.Println("Consent rejected by receiver.")
+		if response.Accepted {
+			return response.Accepted, nil
 		} else {
-			fmt.Println("Consent granted by receiver.")
+			return true, nil
 		}
 	case err := <-errorChan:
-		log.Printf("Failed to receive consent response: %v", err)
+		return false, err
 
 	case <-cs.Ctx.Done():
-		log.Println("Consent request cancelled.")
+		return false, fmt.Errorf("consent request cancelled , %v", cs.Ctx.Err())
 	}
 }
 
-func (cs *ConsentService) HandleIncomingConsent() {
+func (cs *Consent) HandleIncomingConsent() bool {
 	decoder := json.NewDecoder(cs.Conn)
 	var msg ConsentMessage
 	if err := decoder.Decode(&msg); err != nil {
 		log.Printf("Failed to decode consent message: %v", err)
-		return
+		return false
 	}
 	log.Printf("Received consent request of type: %v, metadata: %v", msg.Type, msg.Metadata)
 	var consentGranted bool
@@ -84,6 +83,8 @@ func (cs *ConsentService) HandleIncomingConsent() {
 	}
 	if msg.Type == INITIAL_CONNECTION || msg.Type == FILE_TRANSFER {
 		var input string
+
+		//Handle incoming consent from the command line
 		fmt.Scanln(&input)
 		consentGranted = input == "y" || input == "Y"
 	}
@@ -91,13 +92,22 @@ func (cs *ConsentService) HandleIncomingConsent() {
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(&response); err != nil {
 		log.Printf("Failed to send consent response: %v", err)
-		return
+		return false
 	}
 
 	if consentGranted {
 		log.Println("Consent granted.")
+		return true
 	} else {
 		log.Println("Consent denied.")
+		return false
 	}
 
+}
+
+func NewConsent(conn net.Conn, ctx context.Context) *Consent {
+	return &Consent{
+		Conn: conn,
+		Ctx:  ctx,
+	}
 }

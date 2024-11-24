@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"goshare/internal/transfer"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"crypto/tls"
 
@@ -16,31 +16,36 @@ import (
 	"golang.org/x/exp/rand"
 )
 
+const clientcertDIR string = "CERT"
+
 type Fileshare struct {
-	Quiccon quic.Connection
-	Quicctx context.Context
+	quiccon        quic.Connection
+	ctx            context.Context
+	cancel         context.CancelFunc
+	sessionmanager *SessionManager
 }
 
-func (fs *Fileshare) connectPeer(peeraddress string, ctx context.Context) (*Fileshare, error) {
-
-	certificate, err := tls.LoadX509KeyPair("", "")
+func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
+	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
 	if err != nil {
 		log.Printf("Erro loading certificates : %v", err)
 	}
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{certificate},
 	}
-	conn, err := quic.DialAddr(ctx, peeraddress, tlsConfig, nil)
+	conn, err := quic.DialAddr(fs.ctx, peeraddress, tlsConfig, nil)
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
 		return nil, err
 	}
 	log.Printf("Successfully connected to the QUIC peer - %s", peeraddress)
-	fs.Quiccon = conn
-	fs.Quicctx = ctx
+	fs.quiccon = conn
+	fs.sessionmanager = NewSession(fs.ctx)
+	time.Sleep(30 * time.Second)
+	fs.SendFile("C:\\Users\\jesin\\Downloads\\EMI.txt")
 	return fs, nil
 }
-func (fs *Fileshare) sendFile(filePath string) error {
+func (fs *Fileshare) SendFile(filePath string) error {
 
 	//get the metadata and sent as packet to client
 	file, err := os.Open(filePath)
@@ -57,18 +62,20 @@ func (fs *Fileshare) sendFile(filePath string) error {
 		return err
 	}
 
-	metadata := transfer.FileInfo{
+	metadata := FileInfo{
 		Filename: filestats.Name(),
 		Size:     filestats.Size(),
 	}
 
 	//Simply open a stream to send the file
-	stream, err := fs.Quiccon.OpenStreamSync(fs.Quicctx)
+	stream, err := fs.quiccon.OpenStreamSync(fs.ctx)
 	if err != nil {
 		log.Printf("Error creating stream to send %v", err)
 		return err
 	}
 	defer stream.Close()
+
+	transferkey := fs.sessionmanager.CreateTransfer(metadata, SENDING)
 
 	//Send the metadata first to the reciver
 	// metabuffer := make([]byte, 1024)
@@ -88,34 +95,34 @@ func (fs *Fileshare) sendFile(filePath string) error {
 	//Create a buffer to temp store the chunks for reading and sending those chunks in QUIC-stream
 	//crete a loop to send it until EOF is recived
 	tempfilebuffer := make([]byte, 1024*1024*1)
-	totalfilesize := filestats.Size()
 	var totalbytesent int64
 	for {
 		n, err := file.Read(tempfilebuffer)
 		if err == io.EOF {
+			fs.sessionmanager.CompleteTransfer(transferkey)
 			break
 		}
 		if err != nil {
 			log.Printf("Error will sending reading file : %v", err)
+			fs.sessionmanager.FailTransfer(transferkey, err)
 			return err
 		}
 
 		_, err = stream.Write(tempfilebuffer[:n])
 		if err != nil {
 			log.Printf("Error will sending reading file : %v", err)
+			fs.sessionmanager.FailTransfer(transferkey, err)
 			return err
 		}
-
 		totalbytesent += int64(n)
-		progress := float64(totalbytesent) / float64(totalfilesize) * 100
-		log.Printf("\rProgress: %.2f%%", progress)
+		fs.sessionmanager.UpdateTransferProgress(transferkey, totalbytesent)
+
 	}
-	log.Printf("File %s sent successfully", filePath)
 	return nil
 
 }
-func (fs *Fileshare) listenPeer(peeraddress string, ctx context.Context) (interface{}, error) {
-	certificate, err := tls.LoadX509KeyPair("", "")
+func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interface{}, error) {
+	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
 	if err != nil {
 		log.Printf("Erro loading certificates : %v", err)
 	}
@@ -124,7 +131,10 @@ func (fs *Fileshare) listenPeer(peeraddress string, ctx context.Context) (interf
 	}
 	listener, err := quic.ListenAddr(peeraddress, tlsConfig, nil)
 	log.Printf("Successfully listening to the QUIC peer - %s", peeraddress)
-	fs.Quicctx = ctx
+
+	fs.ctx = ctx
+	fs.sessionmanager = NewSession(fs.ctx)
+
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
 		return nil, err
@@ -135,11 +145,11 @@ func (fs *Fileshare) listenPeer(peeraddress string, ctx context.Context) (interf
 	//use loop to listen and accept incoming connections
 	for {
 		select {
-		case <-fs.Quicctx.Done():
+		case <-fs.ctx.Done():
 			log.Println("Received stop signal, shutting down QUIC listener")
 			return nil, nil
 		default:
-			quiccon, err := listener.Accept(fs.Quicctx)
+			quiccon, err := listener.Accept(fs.ctx)
 			if err != nil {
 				log.Printf("Failed to accept QUIC connection: %v", err)
 				continue
@@ -158,7 +168,7 @@ func (fs *Fileshare) listenPeer(peeraddress string, ctx context.Context) (interf
 
 func (fs *Fileshare) handleIncomingStreams(quiccon quic.Connection) {
 	for {
-		stream, err := quiccon.AcceptStream(fs.Quicctx)
+		stream, err := quiccon.AcceptStream(fs.ctx)
 		if err != nil {
 			log.Printf("Failed to accept QUIC connection: %v", err)
 			continue
@@ -169,6 +179,59 @@ func (fs *Fileshare) handleIncomingStreams(quiccon quic.Connection) {
 			log.Printf("Error during file receive - %s, %v", quiccon.RemoteAddr(), stream.StreamID())
 		}
 	}
+}
+
+func (fs *Fileshare) receiveFile(stream quic.Stream) error {
+	defer stream.Close()
+	metaBuffer := make([]byte, 1024)
+	metastreamsize, err := stream.Read(metaBuffer)
+	if err != nil && err != io.EOF {
+		log.Printf("Error reading metadata: %v", err)
+		return err
+	}
+	//Decoding the metadata here
+	var metadata FileInfo
+	if err := json.Unmarshal(metaBuffer[:metastreamsize], &metadata); err != nil {
+		log.Printf("Error unmarshalling metadata : %v", err)
+		return err
+	}
+	log.Printf("Receiving file: %s, size: %d bytes", metadata.Filename, metadata.Size)
+
+	transferkey := fs.sessionmanager.CreateTransfer(metadata, RECEIVING)
+
+	//Create a file based on metadata recived
+	file, err := fs.createFile(metadata.Filename)
+	if err != nil {
+		log.Printf("Error creating a file: %v", err)
+		return err
+	}
+
+	fileBuffer := make([]byte, 1024*1024*1)
+	var totalbyterec int64
+	for {
+		n, err := stream.Read(fileBuffer)
+		if err == io.EOF {
+			fs.sessionmanager.CompleteTransfer(transferkey)
+			break
+		}
+		if err != nil {
+			log.Printf("Error reading file data , reciving file: %v", err)
+			fs.sessionmanager.FailTransfer(transferkey, err)
+			return err
+		}
+
+		if _, err := file.Write(fileBuffer[:n]); err != nil {
+			log.Printf("Error writing to file: %v", err)
+			fs.sessionmanager.FailTransfer(transferkey, err)
+			return err
+		}
+
+		totalbyterec += int64(n)
+		fs.sessionmanager.UpdateTransferProgress(transferkey, totalbyterec)
+	}
+
+	log.Printf("File %s saved successfully -", file.Name())
+	return nil
 }
 
 func (fs *Fileshare) createFile(filename string) (*os.File, error) {
@@ -197,51 +260,11 @@ func (fs *Fileshare) createFile(filename string) (*os.File, error) {
 	return nil, fmt.Errorf("exceeded retry attempts, could not create file : %s", filename)
 }
 
-func (fs *Fileshare) receiveFile(stream quic.Stream) error {
-	defer stream.Close()
-	metaBuffer := make([]byte, 1024)
-	metastreamsize, err := stream.Read(metaBuffer)
-	if err != nil && err != io.EOF {
-		log.Printf("Error reading metadata: %v", err)
-		return err
+func NewFileshare(parentCtx context.Context) *Fileshare {
+	ctx, cancel := context.WithCancel(parentCtx)
+	return &Fileshare{
+		ctx:            ctx,
+		cancel:         cancel,
+		sessionmanager: NewSession(ctx),
 	}
-	//Decoding the metadata here
-	var metadata transfer.FileInfo
-	if err := json.Unmarshal(metaBuffer[:metastreamsize], &metadata); err != nil {
-		log.Printf("Error unmarshalling metadata : %v", err)
-		return err
-	}
-	log.Printf("Receiving file: %s, size: %d bytes", metadata.Filename, metadata.Size)
-
-	//Create a file based on metadata recived
-	file, err := fs.createFile(metadata.Filename)
-	if err != nil {
-		log.Printf("Error creating a file: %v", err)
-		return err
-	}
-
-	fileBuffer := make([]byte, 1024*1024*1)
-	var totalbyterec int64
-	for {
-		n, err := stream.Read(fileBuffer)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			log.Printf("Error reading file data , reciving file: %v", err)
-			return err
-		}
-
-		if _, err := file.Write(fileBuffer[:n]); err != nil {
-			log.Printf("Error writing to file: %v", err)
-			return err
-		}
-
-		totalbyterec += int64(n)
-		progress := float64(totalbyterec) / float64(metadata.Size) * 100
-		log.Printf("\rProgress: %.2f%%", progress)
-	}
-
-	log.Printf("File %s saved successfully -", file.Name())
-	return nil
 }

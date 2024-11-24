@@ -5,18 +5,30 @@ import (
 	"fmt"
 	"goshare/internal/consent"
 	"goshare/internal/discovery"
+	"goshare/internal/fileshare"
 	"log"
 	"net"
+	"strings"
+	"sync"
 )
 
-type TransferService struct {
+type PeerConnection struct {
 	Peerinfo discovery.PeerInfo
-	Session  []*FileTransferSession
 	Ctx      context.Context
+	consent  *consent.Consent
+	cancel   context.CancelFunc
+	filecon  *fileshare.Fileshare
+	tcpcon   net.Conn
 }
 
-func (ts *TransferService) ConnectToPeer() {
-	peeraddress := fmt.Sprintf("%s:%d", ts.Peerinfo.IPAddress, ts.Peerinfo.Port)
+func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string, port int) {
+	peeraddress := fmt.Sprintf("%s:%d", IPAddress, port)
+	peerinfo := discovery.PeerInfo{
+		ID:        id,
+		Name:      name,
+		IPAddress: IPAddress,
+		Port:      port,
+	}
 	conn, err := net.Dial("tcp", peeraddress)
 	if err != nil {
 		log.Printf("Failed to connect to peer : %v \n,error - %v", peeraddress, err)
@@ -26,32 +38,83 @@ func (ts *TransferService) ConnectToPeer() {
 	log.Printf("Successfully connected to the peer : %v", peeraddress)
 	defer conn.Close()
 
-	fileCon := &FileTransferSession{
-		Conn: conn,
-		Ctx:  ts.Ctx,
-		Role: SENDER,
-	}
+	//create a new context for each connection
+	ctx, cancel := context.WithCancel(context.Background())
 
-	ts.Session = append(ts.Session, fileCon)
-	fmt.Printf("File Transfer struct %v", &ts.Session)
+	//Add initial conenctions , contexts and cancel functions and peer info
+	ts.Peerinfo = peerinfo
+	ts.consent = consent.NewConsent(conn, ctx)
+	ts.Ctx = ctx
+	ts.cancel = cancel
 
-	consentService := &consent.ConsentService{Conn: conn, Ctx: ts.Ctx}
 	consentMsg := consent.ConsentMessage{
 		Type: consent.INITIAL_CONNECTION,
 		Metadata: map[string]string{
-			"Name": "Allow me mother fucker",
+			"name": fmt.Sprintf("%s with %s want to Initate file share", strings.ToUpper(name), IPAddress),
 		},
 	}
-	consentService.RequestConsent(&consentMsg) // Get the response output
-	//If we are able to consent is given then establish the QUIC-connection for sharing the files
-	
+
+	res, err := ts.consent.RequestConsent(&consentMsg)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	//Initate the consent for QUIC connection
+	if res {
+		log.Println("consent is given , Initating a QUIC protocol connection for file share")
+		//Initate fileshare here
+		fs := fileshare.NewFileshare(ctx)
+		ts.filecon = fs
+		ts.filecon.ConnectPeer(ts.Peerinfo.IPAddress)
+	}
+
 	<-ts.Ctx.Done()
 	log.Println("Context cancelled, closing connection")
 }
 
-func (ts *TransferService) ListenToPeer() {
+func (ts *PeerConnection) HandleIncomingCon() {
+	defer ts.tcpcon.Close()
+
+	peeraddress := fmt.Sprintf("%s:%d", ts.tcpcon.RemoteAddr(), 42424)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
+	ts.cancel = cancel
+
+	resConsent := ts.consent.HandleIncomingConsent()
+	if resConsent {
+		//Now listen for QUIC connections
+		ts.filecon = fileshare.NewFileshare(ctx)
+		ts.filecon.ListenPeer(peeraddress, ctx)
+	}
+}
+
+func NewPeerConnection(id string, name string, ipaddress string, conn net.Conn) *PeerConnection {
+	return &PeerConnection{
+		Peerinfo: discovery.PeerInfo{
+			ID:        id,
+			Name:      name,
+			IPAddress: ipaddress,
+			Port:      42424,
+		},
+		tcpcon: conn,
+	}
+}
+
+//Creating a peer manager
+
+type PeerManager struct {
+	activepeers map[string]*PeerConnection
+	peerlock    sync.Mutex
+}
+
+func (pm *PeerManager) ListenToPeer() {
+	log.Printf("Peer manager started to discover")
 	const port = 42424
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	if err != nil {
 		log.Printf("Failed to start listener on port: %v", err)
 	}
@@ -59,7 +122,7 @@ func (ts *TransferService) ListenToPeer() {
 	log.Printf("Listening for incoming connections on port %d :", port)
 	for {
 		select {
-		case <-ts.Ctx.Done():
+		case <-ctx.Done():
 			log.Println("Received stop signal, shutting down listener")
 			return
 		default:
@@ -69,11 +132,13 @@ func (ts *TransferService) ListenToPeer() {
 				continue
 			}
 			log.Printf("Connection accepted from %v", conn.RemoteAddr())
-			go func(conn net.Conn) {
-				defer conn.Close()
-				consentService := &consent.ConsentService{Conn: conn, Ctx: ts.Ctx}
-				consentService.HandleIncomingConsent()
-			}(conn)
+
+			//Create a new PeerConnection object
+			pm.peerlock.Lock()
+			pm.activepeers[conn.RemoteAddr().String()] = NewPeerConnection("123", "jesinth-1", conn.RemoteAddr().String(), conn)
+			pm.peerlock.Unlock()
+
+			go pm.activepeers[conn.RemoteAddr().String()].HandleIncomingCon()
 		}
 	}
 }
