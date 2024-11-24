@@ -5,7 +5,9 @@ import (
 	"goshare/internal/fileshare"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
 func main() {
@@ -14,21 +16,19 @@ func main() {
 		log.Fatal("Usage: program [E/D] (E for Emitter, D for Discoverer)")
 	}
 	role := strings.ToUpper(os.Args[1])
-
-	//---
-	const QUIC_PORT = 42425
-
-	//--
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopchan := make(chan os.Signal, 1)
+	signal.Notify(stopchan, os.Interrupt, syscall.SIGTERM)
 	switch role {
 	case "E":
-		ctx, _ := context.WithCancel(context.Background())
 		pm := fileshare.NewFileshare(ctx)
-		go pm.ListenPeer("192.168.0.105", ctx)
-
+		pm.ListenPeer("192.168.0.105", ctx)
+		<-stopchan
 	case "D":
-		ctx, _ := context.WithCancel(context.Background())
 		pm := fileshare.NewFileshare(ctx)
 		pm.ConnectPeer("192.168.0.102")
+		<-stopchan
 	}
 
 }
