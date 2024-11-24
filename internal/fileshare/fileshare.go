@@ -196,6 +196,7 @@ func (fs *Fileshare) handleIncomingStreams(quiccon quic.Connection) {
 		err = fs.receiveFile(stream)
 		if err != nil {
 			log.Printf("Error during file receive - %s, %v", quiccon.RemoteAddr(), stream.StreamID())
+			
 		}
 	}
 }

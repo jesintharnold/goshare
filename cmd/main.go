@@ -28,20 +28,19 @@ func main() {
 		log.Fatal("Usage: program [E/D] (E for Emitter, D for Discoverer)")
 	}
 
-
 	//---
 	const QUIC_PORT = 42425
 
-    // Load certificates
-    certificate, err := tls.LoadX509KeyPair(filepath.Join("CERT", "client.crt"), filepath.Join("CERT", "client.key"))
-    if err != nil {
-        log.Fatalf("Error loading certificates: %v", err)
-    }
+	// Load certificates
+	certificate, err := tls.LoadX509KeyPair(filepath.Join("PARENT", "parentCA.crt"), filepath.Join("PARENT", "parent.key"))
+	if err != nil {
+		log.Fatalf("Error loading certificates: %v", err)
+	}
 
-    tlsConfig := &tls.Config{
-        Certificates:       []tls.Certificate{certificate},
-        InsecureSkipVerify: true,
-    }
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{certificate},
+		InsecureSkipVerify: true,
+	}
 
 	//--
 
@@ -55,8 +54,8 @@ func main() {
 		log.Println("Starting in Emitter mode...")
 		go discovery.EmitPeerDiscovery(ctx)
 
-		// pm := transfer.NewPeerManager()
-		// go pm.ListenToPeer()
+		pm := transfer.NewPeerManager()
+		go pm.ListenToPeer()
 
 		listener, err := quic.ListenAddr(fmt.Sprintf(":%d", QUIC_PORT), tlsConfig, nil)
 		if err != nil {

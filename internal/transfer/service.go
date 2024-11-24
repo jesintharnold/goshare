@@ -154,7 +154,7 @@ func (pm *PeerManager) ListenToPeer() {
 			pm.activepeers[ipaddress] = NewPeerConnection("123", "jesinth-1", ipaddress, conn)
 			pm.peerlock.Unlock()
 
-			go pm.activepeers[ipaddress].HandleIncomingCon()
+			// go pm.activepeers[ipaddress].HandleIncomingCon()
 		}
 	}
 }
