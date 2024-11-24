@@ -22,7 +22,8 @@ type PeerConnection struct {
 }
 
 func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string, port int) {
-	peeraddress := fmt.Sprintf("%s:%d", IPAddress, port)
+	peeraddress := IPAddress
+	// fmt.Sprintf("%s:%d", IPAddress, port)
 	peerinfo := discovery.PeerInfo{
 		ID:        id,
 		Name:      name,
@@ -66,7 +67,11 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 		//Initate fileshare here
 		fs := fileshare.NewFileshare(ctx)
 		ts.filecon = fs
+
+		fmt.Println("%v", ts.Peerinfo)
+
 		ts.filecon.ConnectPeer(ts.Peerinfo.IPAddress)
+
 	}
 
 	<-ts.Ctx.Done()
@@ -76,7 +81,9 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 func (ts *PeerConnection) HandleIncomingCon() {
 	defer ts.tcpcon.Close()
 
-	peeraddress := fmt.Sprintf("%s:%d", ts.tcpcon.RemoteAddr(), 42424)
+	peeraddress := ts.tcpcon.RemoteAddr().String()
+
+	//fmt.Sprintf("%s:%d", ts.tcpcon.RemoteAddr(), 42424)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
