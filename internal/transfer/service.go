@@ -83,8 +83,6 @@ func (ts *PeerConnection) HandleIncomingCon() {
 
 	peeraddress := ts.tcpcon.RemoteAddr().String()
 
-	//fmt.Sprintf("%s:%d", ts.tcpcon.RemoteAddr(), 42424)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
 	ts.cancel = cancel
@@ -100,7 +98,7 @@ func (ts *PeerConnection) HandleIncomingCon() {
 	if resConsent {
 		//Now listen for QUIC connections
 		ts.filecon = fileshare.NewFileshare(ctx)
-		ts.filecon.ListenPeer(quic_remote_address, ctx)
+		go ts.filecon.ListenPeer(quic_remote_address, ctx)
 	}
 }
 
@@ -124,7 +122,7 @@ type PeerManager struct {
 }
 
 func (pm *PeerManager) ListenToPeer() {
-	log.Printf("Peer manager started to discover")
+	log.Printf("Listening for incoming connectiong on port 42424")
 	const port = 42424
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	ctx, cancel := context.WithCancel(context.Background())
