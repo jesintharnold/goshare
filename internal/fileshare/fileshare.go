@@ -36,9 +36,16 @@ func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
 		log.Printf("Erro loading certificates : %v", err)
 	}
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{certificate},
+		Certificates:       []tls.Certificate{certificate},
+		InsecureSkipVerify: true,
 	}
-	conn, err := quic.DialAddr(fs.ctx, peeraddress, tlsConfig, nil)
+
+	quicConfig := &quic.Config{
+		KeepAlivePeriod: 10 * time.Second,
+		MaxIdleTimeout:  30 * time.Second,
+	}
+
+	conn, err := quic.DialAddr(fs.ctx, peeraddress, tlsConfig, quicConfig)
 
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
@@ -142,6 +149,7 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 		Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true, // For testing only
 	}
+
 	listener, err := quic.ListenAddr(listenAddr, tlsConfig, nil)
 	if err != nil {
 		log.Printf("Error while attempting to listen on QUIC : %s  %v", peeraddress, err)

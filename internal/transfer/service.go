@@ -142,7 +142,7 @@ func (pm *PeerManager) ListenToPeer() {
 				log.Printf("Failed to accept connection: %v", err)
 				continue
 			}
-			log.Printf("Connection accepted from %v", conn.RemoteAddr())
+			log.Printf("tcp Connection accepted from %v", conn.RemoteAddr())
 
 			ipaddress, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 			if err != nil {

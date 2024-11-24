@@ -2,13 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"goshare/internal/discovery"
 	"goshare/internal/transfer"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/quic-go/quic-go"
 )
 
 func main() {
@@ -22,6 +27,24 @@ func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("Usage: program [E/D] (E for Emitter, D for Discoverer)")
 	}
+
+
+	//---
+	const QUIC_PORT = 42425
+
+    // Load certificates
+    certificate, err := tls.LoadX509KeyPair(filepath.Join("CERT", "client.crt"), filepath.Join("CERT", "client.key"))
+    if err != nil {
+        log.Fatalf("Error loading certificates: %v", err)
+    }
+
+    tlsConfig := &tls.Config{
+        Certificates:       []tls.Certificate{certificate},
+        InsecureSkipVerify: true,
+    }
+
+	//--
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stopchan := make(chan os.Signal, 1)
@@ -32,8 +55,22 @@ func main() {
 		log.Println("Starting in Emitter mode...")
 		go discovery.EmitPeerDiscovery(ctx)
 
-		pm := transfer.NewPeerManager()
-		go pm.ListenToPeer()
+		// pm := transfer.NewPeerManager()
+		// go pm.ListenToPeer()
+
+		listener, err := quic.ListenAddr(fmt.Sprintf(":%d", QUIC_PORT), tlsConfig, nil)
+		if err != nil {
+			log.Fatalf("Failed to start QUIC listener: %v", err)
+		}
+		defer listener.Close()
+		log.Printf("QUIC Listening on port %d", QUIC_PORT)
+
+		conn, err := listener.Accept(ctx)
+		if err != nil {
+			log.Printf("Failed to accept: %v", err)
+			return
+		}
+		log.Printf("Accepted connection from: %v", conn.RemoteAddr())
 
 	case "D":
 		log.Println("Starting in Discoverer mode...")
