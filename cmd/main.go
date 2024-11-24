@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"goshare/internal/fileshare"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -55,52 +53,52 @@ func main() {
 	signal.Notify(stopchan, os.Interrupt, syscall.SIGTERM)
 
 	//---
-	const QUIC_PORT = 42425
+	// const QUIC_PORT = 42425
 
-	// Load certificates
-	certificate, err := tls.LoadX509KeyPair(filepath.Join("PARENT", "parentCA.crt"), filepath.Join("PARENT", "parent.key"))
-	if err != nil {
-		log.Fatalf("Error loading certificates: %v", err)
-	}
+	// // Load certificates
+	// certificate, err := tls.LoadX509KeyPair(filepath.Join("PARENT", "parentCA.crt"), filepath.Join("PARENT", "parent.key"))
+	// if err != nil {
+	// 	log.Fatalf("Error loading certificates: %v", err)
+	// }
 
-	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{certificate},
-		InsecureSkipVerify: true,
-	}
+	// tlsConfig := &tls.Config{
+	// 	Certificates:       []tls.Certificate{certificate},
+	// 	InsecureSkipVerify: true,
+	// }
 
 	switch role {
 	case "E":
 		pm := fileshare.NewFileshare(ctx)
 		pm.ListenPeer("192.168.0.105", ctx)
 
-		listener, err := quic.ListenAddr(":42425", tlsConfig, nil)
-		if err != nil {
-			fmt.Printf("Failed to start server: %v\n", err)
-			os.Exit(1)
-		}
-		defer listener.Close()
+		// listener, err := quic.ListenAddr(":42425", tlsConfig, nil)
+		// if err != nil {
+		// 	fmt.Printf("Failed to start server: %v\n", err)
+		// 	os.Exit(1)
+		// }
+		// defer listener.Close()
 
-		fmt.Println("Server listening on :42425")
+		// fmt.Println("Server listening on :42425")
 
-		for {
-			conn, err := listener.Accept(context.Background())
-			if err != nil {
-				fmt.Printf("Failed to accept connection: %v\n", err)
-				continue
-			}
+		// for {
+		// 	conn, err := listener.Accept(context.Background())
+		// 	if err != nil {
+		// 		fmt.Printf("Failed to accept connection: %v\n", err)
+		// 		continue
+		// 	}
 
-			fmt.Printf("New connection from: %s\n", conn.RemoteAddr())
+		// 	fmt.Printf("New connection from: %s\n", conn.RemoteAddr())
 
-			go handleConnection(conn)
-		}
+		// 	go handleConnection(conn)
+		// }
+		<-stopchan
 	case "D":
 		pm := fileshare.NewFileshare(ctx)
-		pm.ConnectPeer("192.168.0.102")
+		pm.ConnectPeer("192.168.0.105")
 
 		// serverAddr := "192.168.0.102:42425"
 		// tlsConf := &tls.Config{
 		// 	InsecureSkipVerify: true,
-		// 	NextProtos:         []string{"quic-test"},
 		// }
 
 		// conn, err := quic.DialAddr(context.Background(), serverAddr, tlsConf, nil)

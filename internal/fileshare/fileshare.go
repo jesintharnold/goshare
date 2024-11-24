@@ -31,12 +31,12 @@ type Fileshare struct {
 func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
 	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
 
-	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
-	// if err != nil {
-	// 	log.Printf("Erro loading certificates : %v", err)
-	// }
+	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
+	if err != nil {
+		log.Printf("Erro loading certificates : %v", err)
+	}
 	tlsConfig := &tls.Config{
-		// Certificates:       []tls.Certificate{certificate},
+		Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true,
 	}
 
@@ -135,54 +135,53 @@ func (fs *Fileshare) SendFile(filePath string) error {
 
 }
 func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interface{}, error) {
-	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
 	listenAddr := fmt.Sprintf(":%d", QUIC_PORT)
 
 	log.Printf("Listening for incoming QUIC connections - %s", peeraddress)
 
-	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
-	if err != nil {
-		log.Printf("Error loading certificates : %v", err)
-		return nil, err
-	}
+	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
+	// if err != nil {
+	// 	log.Printf("Error loading certificates : %v", err)
+	// 	return nil, err
+	// }
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{certificate},
+		// Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true, // For testing only
 	}
 
 	listener, err := quic.ListenAddr(listenAddr, tlsConfig, nil)
-	log.Println("Listener Address - %v", listener.Addr())
 	if err != nil {
 		log.Printf("Error while attempting to listen on QUIC : %s  %v", peeraddress, err)
 		return nil, err
 	}
+	defer listener.Close()
+
 	log.Printf("Successfully listening to the QUIC peer - %s", peeraddress)
 
 	fs.ctx = ctx
 	fs.sessionmanager = NewSession(fs.ctx)
-	defer listener.Close()
 
 	//use loop to listen and accept incoming connections
 	for {
-		select {
-		case <-fs.ctx.Done():
-			log.Println("Received stop signal, shutting down QUIC listener")
-			return nil, nil
-		default:
-			quiccon, err := listener.Accept(fs.ctx)
-			if err != nil {
-				log.Printf("Failed to accept QUIC connection: %v", err)
-				continue
-			}
-			log.Printf("Connection accepted from %v", quiccon.RemoteAddr())
-
-			// After accepting connecting connection now we need to look for new streams
-			go func(quiccon quic.Connection) {
-				defer quiccon.CloseWithError(0, "connection closed")
-				fs.handleIncomingStreams(quiccon)
-			}(quiccon)
-
+		// select {
+		// case <-fs.ctx.Done():
+		// 	log.Println("Received stop signal, shutting down QUIC listener")
+		// 	return nil, nil
+		// default:
+		quiccon, err := listener.Accept(fs.ctx)
+		if err != nil {
+			log.Printf("Failed to accept QUIC connection: %v", err)
+			continue
 		}
+		log.Printf("Connection accepted from %v", quiccon.RemoteAddr())
+
+		// After accepting connecting connection now we need to look for new streams
+		go func(quiccon quic.Connection) {
+			defer quiccon.CloseWithError(0, "connection closed")
+			fs.handleIncomingStreams(quiccon)
+		}(quiccon)
+
+		// }
 	}
 }
 
