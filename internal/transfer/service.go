@@ -23,7 +23,6 @@ type PeerConnection struct {
 
 func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string, port int) {
 	peeraddress := fmt.Sprintf("%s:%d", IPAddress, port)
-	// fmt.Sprintf("%s:%d", IPAddress, port)
 	peerinfo := discovery.PeerInfo{
 		ID:        id,
 		Name:      name,

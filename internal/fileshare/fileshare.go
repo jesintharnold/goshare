@@ -129,6 +129,8 @@ func (fs *Fileshare) SendFile(filePath string) error {
 }
 func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interface{}, error) {
 	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
+	listenAddr := fmt.Sprintf(":%d", QUIC_PORT)
+
 	log.Printf("Listening for incoming QUIC connections - %s", peeraddress)
 
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
@@ -140,7 +142,7 @@ func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interf
 		Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true, // For testing only
 	}
-	listener, err := quic.ListenAddr(peeraddress, tlsConfig, nil)
+	listener, err := quic.ListenAddr(listenAddr, tlsConfig, nil)
 	if err != nil {
 		log.Printf("Error while attempting to listen on QUIC : %s  %v", peeraddress, err)
 		return nil, err
