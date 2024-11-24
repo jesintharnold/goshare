@@ -22,7 +22,7 @@ type PeerConnection struct {
 }
 
 func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string, port int) {
-	peeraddress := IPAddress
+	peeraddress := fmt.Sprintf("%s:%d", IPAddress, port)
 	// fmt.Sprintf("%s:%d", IPAddress, port)
 	peerinfo := discovery.PeerInfo{
 		ID:        id,
@@ -70,7 +70,7 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 
 		fmt.Println("%v", ts.Peerinfo)
 
-		ts.filecon.ConnectPeer(ts.Peerinfo.IPAddress)
+		ts.filecon.ConnectPeer(fmt.Sprintf("%s:%d", IPAddress, 52685))
 
 	}
 
@@ -90,10 +90,17 @@ func (ts *PeerConnection) HandleIncomingCon() {
 	ts.cancel = cancel
 
 	resConsent := ts.consent.HandleIncomingConsent()
+
+	quic_remote_address, _, err := net.SplitHostPort(peeraddress)
+
+	if err != nil {
+		fmt.Printf("Error while extracting IP address for quic connection %v", err)
+	}
+
 	if resConsent {
 		//Now listen for QUIC connections
 		ts.filecon = fileshare.NewFileshare(ctx)
-		ts.filecon.ListenPeer(peeraddress, ctx)
+		ts.filecon.ListenPeer(fmt.Sprintf("%s:%d", quic_remote_address, 52685), ctx)
 	}
 }
 

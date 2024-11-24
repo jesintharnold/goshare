@@ -34,6 +34,9 @@ func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
 		Certificates: []tls.Certificate{certificate},
 	}
 	conn, err := quic.DialAddr(fs.ctx, peeraddress, tlsConfig, nil)
+
+	// log.Println("Connect to peer - %s", peeraddress)
+
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
 		return nil, err
