@@ -70,7 +70,7 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 
 		fmt.Println("%v", ts.Peerinfo)
 
-		ts.filecon.ConnectPeer(fmt.Sprintf("%s", IPAddress))
+		ts.filecon.ConnectPeer(IPAddress)
 
 	}
 
@@ -100,7 +100,7 @@ func (ts *PeerConnection) HandleIncomingCon() {
 	if resConsent {
 		//Now listen for QUIC connections
 		ts.filecon = fileshare.NewFileshare(ctx)
-		ts.filecon.ListenPeer(fmt.Sprintf("%s", quic_remote_address), ctx)
+		ts.filecon.ListenPeer(quic_remote_address, ctx)
 	}
 }
 

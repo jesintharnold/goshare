@@ -16,7 +16,10 @@ import (
 	"golang.org/x/exp/rand"
 )
 
-const clientcertDIR string = "CERT"
+const (
+	clientcertDIR string = "CERT"
+	QUIC_PORT     int    = 42425 // Different from TCP port 42424
+)
 
 type Fileshare struct {
 	quiccon        quic.Connection
@@ -26,6 +29,8 @@ type Fileshare struct {
 }
 
 func (fs *Fileshare) ConnectPeer(peeraddress string) (*Fileshare, error) {
+	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
+
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
 	if err != nil {
 		log.Printf("Erro loading certificates : %v", err)
@@ -125,14 +130,21 @@ func (fs *Fileshare) SendFile(filePath string) error {
 
 }
 func (fs *Fileshare) ListenPeer(peeraddress string, ctx context.Context) (interface{}, error) {
+	peeraddress = fmt.Sprintf("%s:%d", peeraddress, QUIC_PORT)
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
 	if err != nil {
-		log.Printf("Erro loading certificates : %v", err)
+		log.Printf("Error loading certificates : %v", err)
+		return nil, err
 	}
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{certificate},
+		Certificates:       []tls.Certificate{certificate},
+		InsecureSkipVerify: true, // For testing only
 	}
 	listener, err := quic.ListenAddr(peeraddress, tlsConfig, nil)
+	if err != nil {
+		log.Printf("Error while attempting to listen on QUIC : %s  %v", peeraddress, err)
+		return nil, err
+	}
 	log.Printf("Successfully listening to the QUIC peer - %s", peeraddress)
 
 	fs.ctx = ctx
