@@ -140,7 +140,7 @@ func main() {
 	//--
 	switch role {
 	case "E":
-		ctx, cancel := context.WithCancel(context.Background())
+		_, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		listener, err := quic.ListenAddr(":42425", tlsConfig, nil)
 		if err != nil {
