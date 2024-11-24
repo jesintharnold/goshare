@@ -32,7 +32,7 @@ func main() {
 		log.Println("Starting in Emitter mode...")
 		go discovery.EmitPeerDiscovery(ctx)
 
-		pm := &transfer.PeerManager{}
+		pm := transfer.NewPeerManager()
 		go pm.ListenToPeer()
 
 	case "D":
@@ -46,7 +46,7 @@ func main() {
 		// }
 
 		test_transfer := &transfer.PeerConnection{}
-		test_transfer.ConnectToPeer("jesinth-sender", "craxy-jesi", "192.168.0.105", 42424)
+		test_transfer.ConnectToPeer("jesinth-sender", "craxy-jesi", "192.168.0.102", 42424)
 
 	default:
 		log.Fatal("Invalid role. Use 'E' for Emitter or 'D' for Discoverer")

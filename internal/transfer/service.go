@@ -142,3 +142,9 @@ func (pm *PeerManager) ListenToPeer() {
 		}
 	}
 }
+
+func NewPeerManager() *PeerManager {
+	return &PeerManager{
+		activepeers: make(map[string]*PeerConnection),
+	}
+}
