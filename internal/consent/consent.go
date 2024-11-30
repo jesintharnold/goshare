@@ -74,6 +74,7 @@ func (cs *Consent) getInput() bool {
 }
 
 func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
+	log.Println("Looking for Incoming consents bitch")
 	decoder := json.NewDecoder(cs.Conn)
 	var msg ConsentMessage
 	if err := decoder.Decode(&msg); err != nil {
