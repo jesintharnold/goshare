@@ -48,6 +48,7 @@ func (cs *Consent) RequestConsent(msg *ConsentMessage) (bool, error) {
 			errorChan <- fmt.Errorf("failed to decode consent response: %w", err)
 			return
 		}
+		log.Printf("Consent response - %v", decoder)
 		responseChan <- response
 	}()
 
@@ -55,15 +56,14 @@ func (cs *Consent) RequestConsent(msg *ConsentMessage) (bool, error) {
 	case response := <-responseChan:
 		if response.Accepted {
 			return response.Accepted, nil
-		} else {
-			return true, nil
 		}
 	case err := <-errorChan:
 		return false, err
-
 	case <-cs.Ctx.Done():
 		return false, fmt.Errorf("consent request cancelled , %v", cs.Ctx.Err())
 	}
+
+	return false, nil
 }
 
 func (cs *Consent) getInput() bool {
