@@ -21,22 +21,17 @@ type PeerConnection struct {
 	tcpcon   net.Conn
 }
 
-func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string, port int) {
-	peeraddress := fmt.Sprintf("%s:%d", IPAddress, port)
-	peerinfo := discovery.PeerInfo{
-		ID:        id,
-		Name:      name,
-		IPAddress: IPAddress,
-		Port:      port,
-	}
+func (ts *PeerConnection) ConnectToPeer() {
+	peeraddress := fmt.Sprintf("%s:%d", ts.Peerinfo.IPAddress, ts.Peerinfo.Port)
+	log.Printf("Trying to connect to peer on address - %s", peeraddress)
 	conn, err := net.Dial("tcp", peeraddress)
+	log.Println(conn)
 	if err != nil {
 		log.Printf("Failed to connect to peer : %v \n,error - %v", peeraddress, err)
 		return
 	}
 
 	ts.tcpcon = conn
-
 	log.Printf("Successfully connected to the peer : %v", peeraddress)
 	defer conn.Close()
 
@@ -44,7 +39,6 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 	ctx, cancel := context.WithCancel(context.Background())
 
 	//Add initial conenctions , contexts and cancel functions and peer info
-	ts.Peerinfo = peerinfo
 	ts.consent = consent.NewConsent(conn, ctx)
 	ts.Ctx = ctx
 	ts.cancel = cancel
@@ -52,7 +46,7 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 	consentMsg := consent.ConsentMessage{
 		Type: consent.INITIAL_CONNECTION,
 		Metadata: map[string]string{
-			"name": fmt.Sprintf("%s with %s want to Initate file share", strings.ToUpper(name), IPAddress),
+			"name": fmt.Sprintf("%s with %s want to Initate file share", strings.ToUpper(ts.Peerinfo.Name), ts.Peerinfo.IPAddress),
 		},
 	}
 
@@ -71,7 +65,7 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 		//LOOK FOR READINESS_SIGNAL then proceed for this
 		conMsg, res := ts.consent.HandleIncomingConsent()
 		if res && conMsg.Type == consent.READINESS_NOTIFICATION {
-			ts.filecon.ConnectPeer(IPAddress)
+			ts.filecon.ConnectPeer(ts.Peerinfo.IPAddress)
 		}
 	}
 

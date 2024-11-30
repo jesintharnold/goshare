@@ -28,8 +28,8 @@ func main() {
 		<-stopchan
 	case "S":
 		log.Println("Sender mode started")
-		transfer.NewPeerConnection("Test-1", "Jesinth-sender", "192.168.0.105", nil)
-
+		peercon := transfer.NewPeerConnection("Test-1", "Jesinth-sender", "192.168.0.105", nil)
+		peercon.ConnectToPeer()
 		<-stopchan
 	}
 
