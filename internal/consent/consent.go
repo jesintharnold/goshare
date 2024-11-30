@@ -13,6 +13,8 @@ type CONSENT int
 const (
 	INITIAL_CONNECTION CONSENT = iota
 	FILE_TRANSFER
+	READINESS_NOTIFICATION
+	ERROR_CONSENT
 )
 
 type ConsentMessage struct {
@@ -22,6 +24,7 @@ type ConsentMessage struct {
 
 type ConsentResponse struct {
 	Accepted bool
+	Type     CONSENT
 }
 
 type Consent struct {
@@ -29,7 +32,7 @@ type Consent struct {
 	Ctx  context.Context
 }
 
-func (cs *Consent) RequestConsent(msg *ConsentMessage) (consent bool, err error) {
+func (cs *Consent) RequestConsent(msg *ConsentMessage) (bool, error) {
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(msg); err != nil {
 		return false, fmt.Errorf("failed to send consent request: %v", err)
@@ -63,46 +66,74 @@ func (cs *Consent) RequestConsent(msg *ConsentMessage) (consent bool, err error)
 	}
 }
 
-func (cs *Consent) HandleIncomingConsent() bool {
+func (cs *Consent) getInput() bool {
+	var input string
+	//Handle incoming consent from the command line
+	fmt.Scanln(&input)
+	return input == "y" || input == "Y"
+}
+
+func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 	decoder := json.NewDecoder(cs.Conn)
 	var msg ConsentMessage
 	if err := decoder.Decode(&msg); err != nil {
 		log.Printf("Failed to decode consent message: %v", err)
-		return false
+		return msg, false
 	}
 	log.Printf("Received consent request of type: %v, metadata: %v", msg.Type, msg.Metadata)
 	var consentGranted bool
+	var response ConsentResponse
 	switch msg.Type {
 	case INITIAL_CONNECTION:
 		fmt.Println("Initial connection request received. Do you accept? (y/n): ")
+		consentGranted = cs.getInput()
+		response = ConsentResponse{Accepted: consentGranted, Type: INITIAL_CONNECTION}
 	case FILE_TRANSFER:
 		fmt.Println("File transfer request received. Do you accept? (y/n): ")
+		consentGranted = cs.getInput()
+		response = ConsentResponse{Accepted: consentGranted, Type: FILE_TRANSFER}
+	case READINESS_NOTIFICATION:
+		response = ConsentResponse{Accepted: consentGranted, Type: READINESS_NOTIFICATION}
+		fmt.Printf("Readiness notification recived - %s", cs.Conn.RemoteAddr())
+		return msg, true
 	default:
-		fmt.Println("Unknown consent type received. Automatically rejecting.")
-		consentGranted = false
+		fmt.Println("Unknown consent type received .Automatically rejecting.")
+		return msg, false
 	}
-	if msg.Type == INITIAL_CONNECTION || msg.Type == FILE_TRANSFER {
-		var input string
-
-		//Handle incoming consent from the command line
-		fmt.Scanln(&input)
-		consentGranted = input == "y" || input == "Y"
-	}
-	response := ConsentResponse{Accepted: consentGranted}
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(&response); err != nil {
 		log.Printf("Failed to send consent response: %v", err)
-		return false
+		return msg, false
 	}
 
 	if consentGranted {
 		log.Println("Consent granted.")
-		return true
+		return msg, true
 	} else {
 		log.Println("Consent denied.")
-		return false
+		return msg, false
 	}
 
+}
+
+func (cs *Consent) NotifyReadiness() error {
+	readinessMsg := ConsentMessage{
+		Type: READINESS_NOTIFICATION,
+		Metadata: map[string]string{
+			"msg": "Peer is ready to accept QUIC connections",
+		},
+	}
+
+	resEncoder := json.NewEncoder(cs.Conn)
+	if err := resEncoder.Encode(&readinessMsg); err != nil {
+		return fmt.Errorf("%s - %v", cs.Conn.RemoteAddr(), err)
+	}
+	fmt.Printf("%s peer QUIC readiness notification - sent", cs.Conn.RemoteAddr())
+	return nil
+}
+
+func (cs *Consent) Close() error {
+	return cs.Conn.Close()
 }
 
 func NewConsent(conn net.Conn, ctx context.Context) *Consent {

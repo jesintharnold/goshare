@@ -35,6 +35,8 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 		return
 	}
 
+	ts.tcpcon = conn
+
 	log.Printf("Successfully connected to the peer : %v", peeraddress)
 	defer conn.Close()
 
@@ -63,14 +65,14 @@ func (ts *PeerConnection) ConnectToPeer(id string, name string, IPAddress string
 	//Initate the consent for QUIC connection
 	if res {
 		log.Println("consent is given , Initating a QUIC protocol connection for file share")
-		//Initate fileshare here
 		fs := fileshare.NewFileshare(ctx)
 		ts.filecon = fs
 
-		fmt.Println("%v", ts.Peerinfo)
-
-		ts.filecon.ConnectPeer(IPAddress)
-
+		//LOOK FOR READINESS_SIGNAL then proceed for this
+		conMsg, res := ts.consent.HandleIncomingConsent()
+		if res && conMsg.Type == consent.READINESS_NOTIFICATION {
+			ts.filecon.ConnectPeer(IPAddress)
+		}
 	}
 
 	<-ts.Ctx.Done()
@@ -86,18 +88,22 @@ func (ts *PeerConnection) HandleIncomingCon() {
 	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
 	ts.cancel = cancel
 
-	resConsent := ts.consent.HandleIncomingConsent()
-
+	resMsg, resConsent := ts.consent.HandleIncomingConsent()
 	quic_remote_address, _, err := net.SplitHostPort(peeraddress)
-
 	if err != nil {
 		fmt.Printf("Error while extracting IP address for quic connection %v", err)
 	}
 
-	if resConsent {
-		//Now listen for QUIC connections
+	if resConsent && resMsg.Type == consent.INITIAL_CONNECTION {
 		ts.filecon = fileshare.NewFileshare(ctx)
-		go ts.filecon.ListenPeer(quic_remote_address, ctx)
+		listener, err := ts.filecon.ListenPeer(quic_remote_address, ctx)
+		if err != nil {
+			fmt.Printf("Error while listening for QUIC connection: %v", err)
+			return
+		}
+		if listener {
+			ts.consent.NotifyReadiness()
+		}
 	}
 }
 
@@ -121,7 +127,6 @@ type PeerManager struct {
 }
 
 func (pm *PeerManager) ListenToPeer() {
-	log.Printf("Listening for incoming connectiong on port 42424")
 	const port = 42424
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	ctx, cancel := context.WithCancel(context.Background())
@@ -154,7 +159,7 @@ func (pm *PeerManager) ListenToPeer() {
 			pm.activepeers[ipaddress] = NewPeerConnection("123", "jesinth-1", ipaddress, conn)
 			pm.peerlock.Unlock()
 
-			// go pm.activepeers[ipaddress].HandleIncomingCon()
+			go pm.activepeers[ipaddress].HandleIncomingCon()
 		}
 	}
 }
