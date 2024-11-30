@@ -48,7 +48,7 @@ func (cs *Consent) RequestConsent(msg *ConsentMessage) (bool, error) {
 			errorChan <- fmt.Errorf("failed to decode consent response: %w", err)
 			return
 		}
-		log.Printf("Consent response - %v", decoder)
+		log.Printf("Consent response - %v", response)
 		responseChan <- response
 	}()
 
