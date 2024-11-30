@@ -83,6 +83,9 @@ func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 	log.Printf("Received consent request of type: %v, metadata: %v", msg.Type, msg.Metadata)
 	var consentGranted bool
 	var response ConsentResponse
+
+	log.Printf("Consent message - %v", msg)
+
 	switch msg.Type {
 	case INITIAL_CONNECTION:
 		fmt.Println("Initial connection request received. Do you accept? (y/n): ")

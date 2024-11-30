@@ -58,7 +58,7 @@ func (ts *PeerConnection) ConnectToPeer() {
 
 	//Initate the consent for QUIC connection
 	if res {
-		log.Println("consent is given , Initating a QUIC protocol connection for file share")
+		log.Println("Handshake consent is given , Initating a QUIC protocol connection for file share")
 		fs := fileshare.NewFileshare(ctx)
 		ts.filecon = fs
 
@@ -129,7 +129,7 @@ func (pm *PeerManager) ListenToPeer() {
 		log.Printf("Failed to start listener on port: %v", err)
 	}
 	defer listener.Close()
-	log.Printf("Listening for incoming connections on port %d :", port)
+	log.Printf("Listening for incoming connections on port -  %d", port)
 	for {
 		select {
 		case <-ctx.Done():
@@ -141,7 +141,7 @@ func (pm *PeerManager) ListenToPeer() {
 				log.Printf("Failed to accept connection: %v", err)
 				continue
 			}
-			log.Printf("tcp Connection accepted from %v", conn.RemoteAddr())
+			log.Printf("tcp connection accepted from %v", conn.RemoteAddr())
 
 			ipaddress, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 			if err != nil {
