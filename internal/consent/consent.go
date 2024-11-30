@@ -120,6 +120,7 @@ func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 }
 
 func (cs *Consent) NotifyReadiness() error {
+	log.Println("Sent readiness signal , from here")
 	readinessMsg := ConsentMessage{
 		Type: READINESS_NOTIFICATION,
 		Metadata: map[string]string{
