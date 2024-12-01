@@ -64,6 +64,9 @@ func (ts *PeerConnection) ConnectToPeer() {
 
 		//LOOK FOR READINESS_SIGNAL then proceed for this
 		conMsg, res := ts.consent.HandleIncomingConsent()
+		log.Printf("Readiness Notification %v", consentMsg)
+		//Issue might be here we are listening gfor incoming connections , but reciver sends the request suudenly might be due to that.
+
 		if res && conMsg.Type == consent.READINESS_NOTIFICATION {
 			ts.filecon.ConnectPeer(ts.Peerinfo.IPAddress)
 		}
@@ -74,7 +77,7 @@ func (ts *PeerConnection) ConnectToPeer() {
 }
 
 func (ts *PeerConnection) HandleIncomingCon() {
-	defer ts.tcpcon.Close()
+	// defer ts.tcpcon.Close()
 
 	peeraddress := ts.tcpcon.RemoteAddr().String()
 	quic_remote_address, _, err := net.SplitHostPort(peeraddress)
@@ -96,6 +99,12 @@ func (ts *PeerConnection) HandleIncomingCon() {
 			ts.consent.NotifyReadiness()
 		}
 	}
+
+	defer func() {
+		if ts.tcpcon != nil {
+			ts.tcpcon.Close()
+		}
+	}()
 }
 
 func NewPeerConnection(id string, name string, ipaddress string, conn net.Conn) *PeerConnection {

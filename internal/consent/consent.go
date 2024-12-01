@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 )
@@ -75,10 +76,28 @@ func (cs *Consent) getInput() bool {
 
 func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 	log.Println("Looking for Incoming consents bitch")
+
+	if cs.Conn == nil {
+		log.Println("Connection is nil before decoding")
+		return ConsentMessage{}, false
+	}
+
+	if tcpConn, ok := cs.Conn.(*net.TCPConn); ok {
+		file, err := tcpConn.File()
+		if err != nil || file == nil {
+			log.Println("Connection appears to be closed")
+			return ConsentMessage{}, false
+		}
+	}
+
 	decoder := json.NewDecoder(cs.Conn)
 	var msg ConsentMessage
 	if err := decoder.Decode(&msg); err != nil {
-		log.Printf("Failed to decode consent message: %v", err)
+		log.Printf("Decoding error details: \n- Error: %v \n- Error type: %T \n- Connection: %v \n- Remote Address: %v",
+			err, err, cs.Conn, cs.Conn.RemoteAddr())
+		if err == io.EOF {
+			log.Println("Connection closed unexpectedly during message decoding")
+		}
 		return msg, false
 	}
 	log.Printf("Received consent request of type: %v, metadata: %v", msg.Type, msg.Metadata)
@@ -97,13 +116,14 @@ func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 		consentGranted = cs.getInput()
 		response = ConsentResponse{Accepted: consentGranted, Type: FILE_TRANSFER}
 	case READINESS_NOTIFICATION:
-		response = ConsentResponse{Accepted: consentGranted, Type: READINESS_NOTIFICATION}
+		response = ConsentResponse{Accepted: true, Type: READINESS_NOTIFICATION}
 		fmt.Printf("Readiness notification recived - %s", cs.Conn.RemoteAddr())
 		return msg, true
 	default:
 		fmt.Println("Unknown consent type received .Automatically rejecting.")
 		response = ConsentResponse{Accepted: false, Type: ERROR_CONSENT}
 	}
+	//Reset the consent message
 
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(&response); err != nil {
