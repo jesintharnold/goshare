@@ -77,17 +77,14 @@ func (ts *PeerConnection) HandleIncomingCon() {
 	defer ts.tcpcon.Close()
 
 	peeraddress := ts.tcpcon.RemoteAddr().String()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
-	ts.cancel = cancel
-
-	resMsg, resConsent := ts.consent.HandleIncomingConsent()
 	quic_remote_address, _, err := net.SplitHostPort(peeraddress)
 	if err != nil {
 		fmt.Printf("Error while extracting IP address for quic connection %v", err)
 	}
-
+	ctx, cancel := context.WithCancel(context.Background())
+	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
+	ts.cancel = cancel
+	resMsg, resConsent := ts.consent.HandleIncomingConsent()
 	if resConsent && resMsg.Type == consent.INITIAL_CONNECTION {
 		ts.filecon = fileshare.NewFileshare(ctx)
 		listener, err := ts.filecon.ListenPeer(quic_remote_address, ctx)

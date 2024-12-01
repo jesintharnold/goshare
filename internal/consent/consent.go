@@ -56,14 +56,14 @@ func (cs *Consent) RequestConsent(msg *ConsentMessage) (bool, error) {
 	case response := <-responseChan:
 		if response.Accepted {
 			return response.Accepted, nil
+		} else {
+			return false, fmt.Errorf("consent request rejected")
 		}
 	case err := <-errorChan:
 		return false, err
 	case <-cs.Ctx.Done():
 		return false, fmt.Errorf("consent request cancelled , %v", cs.Ctx.Err())
 	}
-
-	return false, nil
 }
 
 func (cs *Consent) getInput() bool {
@@ -102,8 +102,9 @@ func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 		return msg, true
 	default:
 		fmt.Println("Unknown consent type received .Automatically rejecting.")
-		return msg, false
+		response = ConsentResponse{Accepted: false, Type: ERROR_CONSENT}
 	}
+
 	encoder := json.NewEncoder(cs.Conn)
 	if err := encoder.Encode(&response); err != nil {
 		log.Printf("Failed to send consent response: %v", err)
@@ -121,7 +122,6 @@ func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 }
 
 func (cs *Consent) NotifyReadiness() error {
-	log.Println("Sent readiness signal , from here")
 	readinessMsg := ConsentMessage{
 		Type: READINESS_NOTIFICATION,
 		Metadata: map[string]string{
