@@ -65,8 +65,6 @@ func (ts *PeerConnection) ConnectToPeer() {
 		//LOOK FOR READINESS_SIGNAL then proceed for this
 		conMsg, res := ts.consent.HandleIncomingConsent()
 		log.Printf("Readiness Notification %v", consentMsg)
-		//Issue might be here we are listening gfor incoming connections , but reciver sends the request suudenly might be due to that.
-
 		if res && conMsg.Type == consent.READINESS_NOTIFICATION {
 			ts.filecon.ConnectPeer(ts.Peerinfo.IPAddress)
 		}
@@ -79,32 +77,32 @@ func (ts *PeerConnection) ConnectToPeer() {
 func (ts *PeerConnection) HandleIncomingCon() {
 	// defer ts.tcpcon.Close()
 
-	peeraddress := ts.tcpcon.RemoteAddr().String()
-	quic_remote_address, _, err := net.SplitHostPort(peeraddress)
-	if err != nil {
-		fmt.Printf("Error while extracting IP address for quic connection %v", err)
-	}
+	// peeraddress := ts.tcpcon.RemoteAddr().String()
+	// quic_remote_address, _, err := net.SplitHostPort(peeraddress)
+	// if err != nil {
+	// 	fmt.Printf("Error while extracting IP address for quic connection %v", err)
+	// }
 	ctx, cancel := context.WithCancel(context.Background())
 	ts.consent = consent.NewConsent(ts.tcpcon, ctx)
 	ts.cancel = cancel
 	resMsg, resConsent := ts.consent.HandleIncomingConsent()
 	if resConsent && resMsg.Type == consent.INITIAL_CONNECTION {
 		ts.filecon = fileshare.NewFileshare(ctx)
-		listener, err := ts.filecon.ListenPeer(quic_remote_address, ctx)
-		if err != nil {
-			fmt.Printf("Error while listening for QUIC connection: %v", err)
-			return
-		}
-		if listener {
-			ts.consent.NotifyReadiness()
-		}
+		// listener, err := ts.filecon.ListenPeer(quic_remote_address, ctx)
+		// if err != nil {
+		// 	fmt.Printf("Error while listening for QUIC connection: %v", err)
+		// 	return
+		// }
+		// if listener {
+		ts.consent.NotifyReadiness()
+		// }
 	}
 
-	defer func() {
-		if ts.tcpcon != nil {
-			ts.tcpcon.Close()
-		}
-	}()
+	// defer func() {
+	// 	if ts.tcpcon != nil {
+	// 		ts.tcpcon.Close()
+	// 	}
+	// }()
 }
 
 func NewPeerConnection(id string, name string, ipaddress string, conn net.Conn) *PeerConnection {

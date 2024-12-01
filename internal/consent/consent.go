@@ -82,13 +82,13 @@ func (cs *Consent) HandleIncomingConsent() (ConsentMessage, bool) {
 		return ConsentMessage{}, false
 	}
 
-	if tcpConn, ok := cs.Conn.(*net.TCPConn); ok {
-		file, err := tcpConn.File()
-		if err != nil || file == nil {
-			log.Println("Connection appears to be closed")
-			return ConsentMessage{}, false
-		}
-	}
+	// if tcpConn, ok := cs.Conn.(*net.TCPConn); ok {
+	// 	file, err := tcpConn.File()
+	// 	if err != nil || file == nil {
+	// 		log.Println("Connection appears to be closed")
+	// 		return ConsentMessage{}, false
+	// 	}
+	// }
 
 	decoder := json.NewDecoder(cs.Conn)
 	var msg ConsentMessage
