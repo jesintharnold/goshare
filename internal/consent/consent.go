@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"goshare/internal/store"
 	"io"
 	"log"
 	"net"
 	"sync"
-)
 
-//Listen for global consents
-//Send consents to other peers
-// Must have a map - to store the peer consent status
-// If any update like cancel or anyhthing. we can simply destroy the peer status from here as well as from peer file transfer session
-// Get methods like getvalidateduser (returns from map whether the user is validated or not)
+	"github.com/google/uuid"
+)
 
 type CONSENT int
 
@@ -32,26 +29,12 @@ type ConsentMessage struct {
 }
 
 type Consent struct {
-	consentmap map[string]bool
 	ctx        context.Context
-	mu         sync.Mutex
+	cancel     context.CancelFunc
 	notifychan chan ConsentMessage
 }
 
 const CONSENTPORT = 42424
-
-//Methods
-//Listen for connections
-//Send message
-
-func (c *Consent) Init() error {
-	ctx, _ := context.WithCancel(context.Background())
-	c.ctx = ctx
-	c.consentmap = make(map[string]bool)
-	c.notifychan = make(chan ConsentMessage, 100)
-	// defer cancel()
-	return nil
-}
 
 func (c *Consent) Sendconsent(conn net.Conn, msg *ConsentMessage) error {
 	msgencoder := json.NewEncoder(conn)
@@ -64,12 +47,12 @@ func (c *Consent) Sendconsent(conn net.Conn, msg *ConsentMessage) error {
 func (c *Consent) Receiveconsent() error {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", CONSENTPORT))
 	if err != nil {
-		return fmt.Errorf("failed to listen for incoming connections on port - %s", CONSENTPORT)
+		return fmt.Errorf("failed to listen for incoming connections on port - %d", CONSENTPORT)
 	}
 	for {
 		select {
 		case <-c.ctx.Done():
-			return fmt.Errorf("recived context cancel signal, listening stopping on port - %s", CONSENTPORT)
+			return fmt.Errorf("recived context cancel signal, listening stopping on port - %d", CONSENTPORT)
 		default:
 			conn, err := listener.Accept()
 			if err != nil {
@@ -82,9 +65,18 @@ func (c *Consent) Receiveconsent() error {
 				fmt.Printf("Error while extracting IP address for quic connection %v", err)
 			}
 
-			c.mu.Lock()
-			c.consentmap[ipaddress] = false
-			c.mu.Unlock()
+			//Once consent is given create a new Peer map for the user
+			peer := &store.Peer{
+				IP:          ipaddress,
+				ID:          uuid.New().String(),
+				FileSession: store.NewSession(),
+				TCPConn:     conn,
+			}
+
+			err = store.Getpeermanager().Addpeer(peer)
+			if err != nil {
+				log.Printf("Failed to add peer to peer manager: %v", err)
+			}
 			go c.handleIncomingconsent(conn, ipaddress)
 		}
 	}
@@ -95,15 +87,13 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&message); err != nil {
 		if err == io.EOF {
-			return fmt.Errorf("Connection closed unexpectedly during message decoding")
+			return fmt.Errorf("connection closed unexpectedly during message decoding")
 		}
-		return fmt.Errorf("Decoding error details: \n- Error: %v \n- Error type: %T \n- Connection: %v \n- Remote Address: %v",
+		return fmt.Errorf("decoding error details: \n- Error: %v \n- Error type: %T \n- Connection: %v \n- Remote Address: %v",
 			err, err, conn, conn.RemoteAddr())
 	}
 
-	log.Printf("Received consent request of type: %s, metadata: %s", message.Type, message.Metadata)
-
-	//Before going to swith check this should belong to same machine
+	log.Printf("received consent request of type: %v, metadata: %v", message.Type, message.Metadata)
 
 	switch message.Type {
 	case INITIAL:
@@ -112,39 +102,50 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 		c.Sendconsent(conn, &ConsentMessage{
 			Type: INITIALRES,
 			Metadata: map[string]string{
-				"Accepted": fmt.Sprintf("Consent response - %s", consent),
+				"Accepted": fmt.Sprintf("%v", consent),
 			},
 		})
+		store.Getpeermanager().Changeconsent(ipaddress, consent)
 
 	case FILE:
-		log.Printf("File request recived - %v", message)
+		log.Printf("File r equest recived - %v", message)
 		consent := c.getInput()
 		c.Sendconsent(conn, &ConsentMessage{
 			Type: FILERES,
 			Metadata: map[string]string{
-				"Accepted": fmt.Sprintf("Consent response - %s", consent),
+				"Accepted": fmt.Sprintf("Consent response - %v", consent),
 			},
 		})
 
 	case INITIALRES, FILERES:
-		c.notifychan <- message
+		consentStr, exists := message.Metadata["Accepted"]
+		if !exists {
+			log.Printf("Consent response from %s , Rejecting...", ipaddress)
+			store.Getpeermanager().Changeconsent(ipaddress, false)
+			return fmt.Errorf("missing 'Accepted' key in metadata")
+		}
+		var consent bool
+		if consentStr == "true" || consentStr == "True" || consentStr == "1" {
+			consent = true
+		} else if consentStr == "false" || consentStr == "False" || consentStr == "0" {
+			consent = false
+		} else {
+			log.Printf("Invalid consent value '%s'. Rejecting.", consentStr)
+			store.Getpeermanager().Changeconsent(ipaddress, false)
+			return fmt.Errorf("invalid consent value: %s", consentStr)
+		}
+		store.Getpeermanager().Changeconsent(ipaddress, consent)
+		log.Printf("Consent status for peer %s updated to %v", ipaddress, consent)
+
+		//c.notifychan <- message
 	case ERROR:
-		log.Printf("unknown error occured %v", message)
+		return fmt.Errorf("unknown error occured %v", message)
+
 	default:
-		log.Println("Unknown consent type received .Automatically rejecting.")
+		return fmt.Errorf("unknown consent type received .Automatically rejecting. %v", message)
 	}
 
 	return nil
-}
-
-func (c *Consent) Checkuserconsent(peer string) bool {
-	return c.consentmap[peer]
-}
-
-func (c *Consent) Closepeer(peer string) {
-	c.mu.Lock()
-	delete(c.consentmap, peer)
-	c.mu.Unlock()
 }
 
 func (cs *Consent) getInput() bool {
@@ -158,4 +159,21 @@ func (cs *Consent) getInput() bool {
 		}
 		fmt.Println("Invalid input. Please enter 'y' or 'n':")
 	}
+}
+
+var (
+	consent   *Consent
+	singleton sync.Once
+)
+
+func Getconsent() *Consent {
+	ctx, cancel := context.WithCancel(context.Background())
+	singleton.Do(func() {
+		consent = &Consent{
+			ctx:        ctx,
+			notifychan: make(chan ConsentMessage, 100),
+			cancel:     cancel,
+		}
+	})
+	return consent
 }

@@ -1,4 +1,4 @@
-package fileshare
+package store
 
 import (
 	"context"
@@ -118,8 +118,8 @@ func (sm *SessionManager) FailTransfer(transferID string, err error) error {
 }
 
 // Initate new session for creating Invidual peer to peer file transfer
-func NewSession(ctx context.Context) *SessionManager {
-	sctx, cancel := context.WithCancel(ctx)
+func NewSession() *SessionManager {
+	sctx, cancel := context.WithCancel(context.Background())
 	return &SessionManager{
 		activeTransfers: make(map[string]*FileTransfer),
 		ctx:             sctx,
