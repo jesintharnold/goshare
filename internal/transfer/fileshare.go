@@ -5,13 +5,17 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"goshare/internal/consent"
 	"goshare/internal/store"
 	"io"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
 	"golang.org/x/exp/rand"
 )
@@ -173,4 +177,180 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 	return nil, fmt.Errorf("exceeded retry attempts, could not create file : %s", filename)
 }
 
-//QSENDER  - We need to send the status of files to here
+// QSENDER  - We need to send the status of files to here
+type QSender struct {
+}
+
+func (q *QSender) GetConnection(ipaddress string) quic.Connection {
+	peer, err := store.Getpeermanager().Getpeer(ipaddress)
+	if err != nil {
+		log.Println(err)
+	}
+	if peer == nil {
+		peer := &store.Peer{
+			IP:          ipaddress,
+			ID:          uuid.New().String(),
+			FileSession: store.NewSession(),
+		}
+		err = store.Getpeermanager().Addpeer(peer)
+		if err != nil {
+			log.Printf("Failed to add peer to peer manager: %v", err)
+		}
+	} else if peer.QuicConn != nil {
+		return peer.QuicConn
+	}
+	peeraddress := fmt.Sprintf("%s:%d", ipaddress, QUIC_PORT)
+	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
+	if err != nil {
+		log.Printf("Erro loading certificates : %v", err)
+	}
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{certificate},
+		InsecureSkipVerify: true,
+	}
+
+	quicConfig := &quic.Config{
+		KeepAlivePeriod: 10 * time.Second,
+		MaxIdleTimeout:  30 * time.Second,
+	}
+	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, quicConfig)
+
+	if err != nil {
+		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
+		return nil
+	}
+
+	log.Printf("Successfully connected to the QUIC peer - %s", peeraddress)
+
+	peer.QuicConn = conn
+	return conn
+}
+
+func (q *QSender) prevalidation(ipaddress string) bool {
+	// This function is to do the pre-validation check before sending file
+	peer, err := store.Getpeermanager().Getpeer(ipaddress)
+	if err != nil {
+		log.Println(err)
+	}
+	consentVal := peer.Consent || false
+	if consentVal {
+		return true
+	} else {
+		//we need to provide them with IPAddress and Name bro
+		msg := consent.ConsentMessage{
+			Type: consent.INITIAL,
+			Metadata: map[string]string{
+				"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
+			},
+		}
+		log.Printf("No consent found , requesting the client %s", ipaddress)
+		consent.Getconsent().Sendmessage(ipaddress, &msg)
+	}
+	return false
+}
+
+func (q *QSender) SendFile(ipaddress string, filePath string) error {
+
+	validation := q.prevalidation(ipaddress)
+
+	if !validation {
+		log.Printf("No Consent found. Requested %s for consent , try sending the few mins", ipaddress)
+		return nil
+	}
+
+	conn := q.GetConnection(ipaddress)
+
+	file, err := os.Open(filePath)
+
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("File does not exist in the path %s", filePath)
+			return nil
+		} else {
+			log.Printf("Error opening file path %s , %v", filePath, err)
+			return err
+		}
+	}
+
+	filestats, err := file.Stat()
+	if err != nil {
+		log.Printf("Error getting file info %s: %v", filePath, err)
+		return err
+	}
+
+	metadata := store.FileInfo{
+		Filename: filestats.Name(),
+		Size:     filestats.Size(),
+	}
+
+	Qstream, err := conn.OpenStreamSync(context.Background())
+	if err != nil {
+		log.Printf("Error creating a stream for sending Metadata %v", err)
+	}
+
+	peer, err := store.Getpeermanager().Getpeer(ipaddress)
+	if err != nil {
+		return err
+	}
+
+	transferkey := peer.FileSession.CreateTransfer(metadata, store.SENDING)
+
+	metaJSON, err := json.Marshal(&metadata)
+	if err != nil {
+		log.Printf("Error while converting the File metadata for sending %v", err)
+		return err
+	}
+
+	_, err = Qstream.Write(metaJSON)
+	if err != nil {
+		log.Printf("Error will sending reading file : %v", err)
+		return err
+	}
+	log.Printf("Sent metadata for %s,%v", filePath, metaJSON)
+
+	// We are sending now actual files bro
+	tempfilebuffer := make([]byte, 1*1024*1024)
+	var totalbytesent int64
+	for {
+		n, err := file.Read(tempfilebuffer)
+		if err == io.EOF {
+			peer.FileSession.CompleteTransfer(transferkey)
+			break
+		}
+		if err != nil {
+			log.Printf("Error will sending reading file : %v", err)
+			peer.FileSession.FailTransfer(transferkey, err)
+			return err
+		}
+		_, err = Qstream.Write(tempfilebuffer[:n])
+		if err != nil {
+			log.Printf("Error will sending reading file : %v", err)
+			peer.FileSession.FailTransfer(transferkey, err)
+			return err
+		}
+
+		totalbytesent += int64(n)
+		//update total bytes in terms of single byte ot interms of percentage
+		peer.FileSession.UpdateTransferProgress(transferkey, totalbytesent)
+	}
+	return nil
+}
+
+// Two singleton process
+// 1 - QListener
+// 2 - QSender
+
+var (
+	QListen   *QListener
+	QSend     *QSender
+	singleton sync.Once
+)
+
+func Getfileshare() (*QListener, *QSender) {
+	singleton.Do(func() {
+		QListen = &QListener{}
+		QSend = &QSender{}
+	})
+
+	return QListen, QSend
+}

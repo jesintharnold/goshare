@@ -5,16 +5,16 @@ import (
 	"net"
 	"sync"
 
-	"golang.org/x/net/quic"
+	"github.com/quic-go/quic-go"
 )
 
 type Peer struct {
 	ID          string
 	IP          string
-	QuicConn    quic.Conn
+	QuicConn    quic.Connection
 	FileSession *SessionManager
 	TCPConn     net.Conn
-	consent     bool
+	Consent     bool
 }
 
 type Peermanager struct {
@@ -74,7 +74,7 @@ func (pm *Peermanager) Changeconsent(ip string, val bool) error {
 	if !exists {
 		return fmt.Errorf("peer with IP %s does not found", ip)
 	}
-	peer.consent = val
+	peer.Consent = val
 	return nil
 }
 

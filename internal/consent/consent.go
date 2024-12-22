@@ -36,7 +36,7 @@ type Consent struct {
 
 const CONSENTPORT = 42424
 
-func (c *Consent) Sendconsent(conn net.Conn, msg *ConsentMessage) error {
+func (c *Consent) sendconsent(conn net.Conn, msg *ConsentMessage) error {
 	msgencoder := json.NewEncoder(conn)
 	if err := msgencoder.Encode(msg); err != nil {
 		return fmt.Errorf("error while sending consent message to user \n error - %s\nremote address -%s", err, conn.RemoteAddr().String())
@@ -46,6 +46,7 @@ func (c *Consent) Sendconsent(conn net.Conn, msg *ConsentMessage) error {
 
 func (c *Consent) Receiveconsent() error {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", CONSENTPORT))
+	log.Println("Started Listening for TCP consents")
 	if err != nil {
 		return fmt.Errorf("failed to listen for incoming connections on port - %d", CONSENTPORT)
 	}
@@ -64,18 +65,23 @@ func (c *Consent) Receiveconsent() error {
 			if err != nil {
 				fmt.Printf("Error while extracting IP address for quic connection %v", err)
 			}
-
-			//Once consent is given create a new Peer map for the user
-			peer := &store.Peer{
-				IP:          ipaddress,
-				ID:          uuid.New().String(),
-				FileSession: store.NewSession(),
-				TCPConn:     conn,
-			}
-
-			err = store.Getpeermanager().Addpeer(peer)
+			peer, err := store.Getpeermanager().Getpeer(ipaddress)
 			if err != nil {
-				log.Printf("Failed to add peer to peer manager: %v", err)
+				log.Println(err)
+			}
+			if peer == nil {
+				peer = &store.Peer{
+					IP:          ipaddress,
+					ID:          uuid.New().String(),
+					FileSession: store.NewSession(),
+					TCPConn:     conn,
+				}
+				err = store.Getpeermanager().Addpeer(peer)
+				if err != nil {
+					log.Printf("Failed to add peer to peer manager: %v", err)
+				}
+			} else {
+				peer.TCPConn = conn
 			}
 			go c.handleIncomingconsent(conn, ipaddress)
 		}
@@ -99,7 +105,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 	case INITIAL:
 		log.Printf("Initial connection request received. Do you accept? (y/n): ")
 		consent := c.getInput()
-		c.Sendconsent(conn, &ConsentMessage{
+		c.sendconsent(conn, &ConsentMessage{
 			Type: INITIALRES,
 			Metadata: map[string]string{
 				"Accepted": fmt.Sprintf("%v", consent),
@@ -110,7 +116,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 	case FILE:
 		log.Printf("File r equest recived - %v", message)
 		consent := c.getInput()
-		c.Sendconsent(conn, &ConsentMessage{
+		c.sendconsent(conn, &ConsentMessage{
 			Type: FILERES,
 			Metadata: map[string]string{
 				"Accepted": fmt.Sprintf("Consent response - %v", consent),
@@ -159,6 +165,35 @@ func (cs *Consent) getInput() bool {
 		}
 		fmt.Println("Invalid input. Please enter 'y' or 'n':")
 	}
+}
+
+func (cs *Consent) Sendmessage(ipaddress string, msg *ConsentMessage) error {
+	peeraddress := fmt.Sprintf("%s:%d", ipaddress, CONSENTPORT)
+	peer, err := store.Getpeermanager().Getpeer(ipaddress)
+	if err != nil {
+		log.Println(err)
+	}
+	if peer == nil {
+		//establish the connection to the peer for TCP
+		peer = &store.Peer{
+			IP:          ipaddress,
+			ID:          uuid.New().String(),
+			FileSession: store.NewSession(),
+		}
+		err = store.Getpeermanager().Addpeer(peer)
+		if err != nil {
+			log.Printf("Failed to add peer to peer manager: %v", err)
+		}
+	}
+	if peer.TCPConn == nil {
+		conn, err := net.Dial("tcp", peeraddress)
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		peer.TCPConn = conn
+	}
+	return cs.sendconsent(peer.TCPConn, msg)
 }
 
 var (

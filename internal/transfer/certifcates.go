@@ -1,4 +1,4 @@
-package tra
+package transfer
 
 import (
 	"crypto/rand"
