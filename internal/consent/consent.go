@@ -79,6 +79,7 @@ func (c *Consent) Receiveconsent() error {
 				err = store.Getpeermanager().Addpeer(peer)
 				if err != nil {
 					log.Printf("Failed to add peer to peer manager: %v", err)
+					continue
 				}
 			} else {
 				peer.TCPConn = conn
