@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/google/uuid"
@@ -126,6 +127,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 
 	case INITIALRES, FILERES:
 		consentStr, exists := message.Metadata["Accepted"]
+		fmt.Printf("consent status we requested bitch - %v", consentStr)
 		if !exists {
 			log.Printf("Consent response from %s , Rejecting...", ipaddress)
 			store.Getpeermanager().Changeconsent(ipaddress, false)
@@ -142,7 +144,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 			return fmt.Errorf("invalid consent value: %s", consentStr)
 		}
 		store.Getpeermanager().Changeconsent(ipaddress, consent)
-		log.Printf("Consent status for peer %s updated to %v", ipaddress, consent)
+		fmt.Fprintf(os.Stdout, "Consent status for peer %s updated to %v", ipaddress, consent)
 
 		//c.notifychan <- message
 	case ERROR:
@@ -160,8 +162,10 @@ func (cs *Consent) getInput() bool {
 	for {
 		fmt.Scanln(&input)
 		if input == "y" || input == "Y" {
+			fmt.Printf("Response given - %s", input)
 			return true
 		} else if input == "n" || input == "N" {
+			fmt.Printf("Response given - %s", input)
 			return false
 		}
 		fmt.Println("Invalid input. Please enter 'y' or 'n':")

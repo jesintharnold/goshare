@@ -47,11 +47,11 @@ func main() {
 		qListener.QUICListener(context)
 	}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		CLI()
-	}()
+	// wg.Add(1)
+	// go func() {
+	// 	defer wg.Done()
+	CLI()
+	// }()
 
 	<-stopchan
 	log.Println("Shutdown signal received, cleaning up...")
@@ -65,7 +65,7 @@ func CLI() {
 	fmt.Println("Goshare - version 0.1.0")
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print(">")
+		// fmt.Print(">")
 		input, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error while reading input \n %v", err)
