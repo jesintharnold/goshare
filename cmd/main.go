@@ -1,39 +1,127 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"goshare/internal/consent"
+	"goshare/internal/store"
 	"goshare/internal/transfer"
+	"log"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
 )
 
 func main() {
-
-	// if len(os.Args) < 2 {
-	// 	log.Fatal("Usage: program [E/D] (E for Emitter, D for Discoverer)")
-	// }
-	// role := strings.ToUpper(os.Args[1])
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
+	context, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	stopchan := make(chan os.Signal, 1)
 	signal.Notify(stopchan, os.Interrupt, syscall.SIGTERM)
-	// switch role {
-	// case "R":
-	// 	reciver := transfer.NewPeerManager()
-	// 	reciver.ListenToPeer()
-	// 	// pm := fileshare.NewFileshare(ctx)
-	// 	// pm.ListenPeer("192.168.0.105", ctx)
-	// 	<-stopchan
-	// case "S":
-	// 	log.Println("Sender mode started")
-	// 	peercon := transfer.NewPeerConnection("Test-1", "Jesinth-sender", "192.168.0.103", nil)
-	// 	peercon.ConnectToPeer()
-	// 	<-stopchan
-	// }
+	manager := store.Getpeermanager()
+	if manager == nil {
+		log.Fatal("Failed to initialize peer manager")
+	}
+	cons := consent.Getconsent()
+	if cons == nil {
+		log.Fatal("Failed to initialize consent manager")
+	}
+	qListener, qSender := transfer.Getfileshare()
+	if qListener == nil || qSender == nil {
+		log.Fatal("Failed to initialize file share components")
+	}
 
-	// consent.Getconsent().Receiveconsent()
-	listen, _ := transfer.Getfileshare()
-	listen.QUICListener(context.Background())
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cons.Receiveconsent()
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		qListener.QUICListener(context)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		CLI()
+	}()
+
 	<-stopchan
+	log.Println("Shutdown signal received, cleaning up...")
+	cancel()
+	wg.Wait()
+	log.Println("Shutdown complete")
+}
+
+func CLI() {
+	//Initialize all the seperate go routine - listeners for TCP / QUIC
+	fmt.Println("Goshare - version 0.1.0")
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print(">")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error while reading input \n %v", err)
+			continue
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+
+		args := strings.Split(input, " ")
+		cmd := args[0]
+
+		switch cmd {
+		case "consent":
+			if len(args) != 2 {
+				fmt.Println("Usage: consent <IP>")
+				continue
+			}
+			clientip := args[1]
+			// consent with ip for sending
+			consent.Getconsent().Sendmessage(clientip, &consent.ConsentMessage{
+				Type: consent.INITIAL,
+				Metadata: map[string]string{
+					"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
+				},
+			})
+
+		case "sendfile":
+			if len(args) != 3 {
+				fmt.Println("Usage: sendfile <IP> <file>")
+				continue
+			}
+			clientip := args[1]
+			file_path := args[2]
+			// sendfile function here
+			_, fsend := transfer.Getfileshare()
+			fsend.SendFile(clientip, file_path)
+		case "quit":
+			fmt.Println("Exiting goshare...")
+			return
+		case "help":
+			printHelp()
+		default:
+			fmt.Println("Unknown command. Type 'help' for a list of commands.")
+		}
+
+	}
+
+}
+
+func printHelp() {
+	fmt.Println("Commands:")
+	fmt.Println("  sendfile <IP> <file>: Send a file to a client.")
+	fmt.Println("  consent <IP>: Give consent to a client.")
+	fmt.Println("  quit: Exit the CLI.")
+	fmt.Println("  help: Show this help message.")
 }

@@ -181,7 +181,7 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 type QSender struct {
 }
 
-func (q *QSender) GetConnection(ipaddress string) quic.Connection {
+func (q *QSender) getConnection(ipaddress string) quic.Connection {
 	peer, err := store.Getpeermanager().Getpeer(ipaddress)
 	if err != nil {
 		log.Println(err)
@@ -230,22 +230,32 @@ func (q *QSender) prevalidation(ipaddress string) bool {
 	// This function is to do the pre-validation check before sending file
 	peer, err := store.Getpeermanager().Getpeer(ipaddress)
 	if err != nil {
-		log.Println(err)
-	}
-	consentVal := peer.Consent || false
-	if consentVal {
-		return true
-	} else {
-		//we need to provide them with IPAddress and Name bro
-		msg := consent.ConsentMessage{
-			Type: consent.INITIAL,
-			Metadata: map[string]string{
-				"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
-			},
+		log.Printf("Error getting peer: %v", err)
+		peer = &store.Peer{
+			IP:          ipaddress,
+			ID:          uuid.New().String(),
+			FileSession: store.NewSession(),
+			Consent:     false,
 		}
-		log.Printf("No consent found , requesting the client %s", ipaddress)
-		consent.Getconsent().Sendmessage(ipaddress, &msg)
+		err = store.Getpeermanager().Addpeer(peer)
+		if err != nil {
+			log.Printf("Failed to add peer to peer manager: %v", err)
+			return false
+		}
 	}
+
+	if peer.Consent {
+		return true
+	}
+	//we need to provide them with IPAddress and Name bro
+	msg := consent.ConsentMessage{
+		Type: consent.INITIAL,
+		Metadata: map[string]string{
+			"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
+		},
+	}
+	log.Printf("No consent found , requesting the client %s", ipaddress)
+	consent.Getconsent().Sendmessage(ipaddress, &msg)
 	return false
 }
 
@@ -254,12 +264,12 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 	validation := q.prevalidation(ipaddress)
 
 	if !validation {
-		log.Printf("No Consent found. Requested %s for consent , try sending the few mins", ipaddress)
+		log.Printf("No Consent found. Requested %s for consent , try sharing the files after consent", ipaddress)
 		return nil
 	}
 
-	conn := q.GetConnection(ipaddress)
-
+	conn := q.getConnection(ipaddress)
+	fmt.Fprintf(os.Stdout, "Sending file - %s , to the client - %s", filePath, ipaddress)
 	file, err := os.Open(filePath)
 
 	if err != nil {

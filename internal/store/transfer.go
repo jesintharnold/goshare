@@ -28,15 +28,6 @@ var (
 	singleton sync.Once
 )
 
-func Getpeermanager() *Peermanager {
-	singleton.Do(func() {
-		manager = &Peermanager{
-			peers: make(map[string]*Peer),
-		}
-	})
-	return manager
-}
-
 func (pm *Peermanager) Addpeer(peer *Peer) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -89,3 +80,12 @@ func (pm *Peermanager) Changeconsent(ip string, val bool) error {
 // 	  - YES ---> ACCEPT THE CONNECTION , CREATE A NEW PEER STATUS AND ALL
 //    - NO  ---> SEND THE CONSENT RESPONSE (TO OTHER USER THAT CONSENT IS NOT GIVEN)
 //
+
+func Getpeermanager() *Peermanager {
+	singleton.Do(func() {
+		manager = &Peermanager{
+			peers: make(map[string]*Peer),
+		}
+	})
+	return manager
+}
