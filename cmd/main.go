@@ -20,6 +20,9 @@ func main() {
 	defer cancel()
 	stopchan := make(chan os.Signal, 1)
 	signal.Notify(stopchan, os.Interrupt, syscall.SIGTERM)
+
+	notifychan := make(chan string, 10)
+
 	manager := store.Getpeermanager()
 	if manager == nil {
 		log.Fatal("Failed to initialize peer manager")
@@ -28,6 +31,10 @@ func main() {
 	if cons == nil {
 		log.Fatal("Failed to initialize consent manager")
 	}
+
+	//we are injecting the notify channel
+	cons.SetupNotify(notifychan)
+
 	qListener, qSender := transfer.Getfileshare()
 	if qListener == nil || qSender == nil {
 		log.Fatal("Failed to initialize file share components")
@@ -47,71 +54,91 @@ func main() {
 		qListener.QUICListener(context)
 	}()
 
-	// wg.Add(1)
-	// go func() {
-	// 	defer wg.Done()
-	CLI()
-	// }()
+	wg.Add(1)
+	go func(notifychan chan string) {
+		defer wg.Done()
+		CLI(notifychan)
+	}(notifychan)
 
 	<-stopchan
 	log.Println("Shutdown signal received, cleaning up...")
 	cancel()
 	wg.Wait()
+	os.Exit(1)
 	log.Println("Shutdown complete")
 }
 
-func CLI() {
-	//Initialize all the seperate go routine - listeners for TCP / QUIC
-	fmt.Println("Goshare - version 0.1.0")
+func CLI(notifychan chan string) {
+	fmt.Println("Goshare - version 0.1.0")	
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		// fmt.Print(">")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error while reading input \n %v", err)
-			continue
-		}
-
-		input = strings.TrimSpace(input)
-		if input == "" {
-			continue
-		}
-
-		args := strings.Split(input, " ")
-		cmd := args[0]
-
-		switch cmd {
-		case "consent":
-			if len(args) != 2 {
-				fmt.Println("Usage: consent <IP>")
+		select {
+		case consentpromt := <-notifychan:
+			fmt.Println(consentpromt)
+			fmt.Print("> ")
+			promptres, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error while reading input \n %v", err)
 				continue
 			}
-			clientip := args[1]
-			// consent with ip for sending
-			consent.Getconsent().Sendmessage(clientip, &consent.ConsentMessage{
-				Type: consent.INITIAL,
-				Metadata: map[string]string{
-					"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
-				},
-			})
 
-		case "sendfile":
-			if len(args) != 3 {
-				fmt.Println("Usage: sendfile <IP> <file>")
+			promptres = strings.TrimSpace(promptres)
+			if promptres == "" {
+				fmt.Fprint(os.Stderr, "No response given")
 				continue
 			}
-			clientip := args[1]
-			file_path := args[2]
-			// sendfile function here
-			_, fsend := transfer.Getfileshare()
-			fsend.SendFile(clientip, file_path)
-		case "quit":
-			fmt.Println("Exiting goshare...")
-			return
-		case "help":
-			printHelp()
+
+			notifychan <- promptres
+
 		default:
-			fmt.Println("Unknown command. Type 'help' for a list of commands.")
+			fmt.Print("> ")
+			input, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error while reading input \n %v", err)
+				continue
+			}
+
+			input = strings.TrimSpace(input)
+			if input == "" {
+				continue
+			}
+
+			args := strings.Split(input, " ")
+			cmd := args[0]
+
+			switch cmd {
+			case "consent":
+				if len(args) != 2 {
+					fmt.Println("Usage: consent <IP>")
+					continue
+				}
+				clientip := args[1]
+				// consent with ip for sending
+				consent.Getconsent().Sendmessage(clientip, &consent.ConsentMessage{
+					Type: consent.INITIAL,
+					Metadata: map[string]string{
+						"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
+					},
+				})
+
+			case "sendfile":
+				if len(args) != 3 {
+					fmt.Println("Usage: sendfile <IP> <file>")
+					continue
+				}
+				clientip := args[1]
+				file_path := args[2]
+				// sendfile function here
+				_, fsend := transfer.Getfileshare()
+				fsend.SendFile(clientip, file_path)
+			case "quit":
+				fmt.Println("Exiting goshare...")
+				return
+			case "help":
+				printHelp()
+			default:
+				fmt.Println("Unknown command. Type 'help' for a list of commands.")
+			}
 		}
 
 	}

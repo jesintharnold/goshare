@@ -9,7 +9,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -32,10 +34,14 @@ type ConsentMessage struct {
 type Consent struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
-	notifychan chan ConsentMessage
+	notifychan chan string
 }
 
 const CONSENTPORT = 42424
+
+func (c *Consent) SetupNotify(notify chan string) {
+	c.notifychan = notify
+}
 
 func (c *Consent) sendconsent(conn net.Conn, msg *ConsentMessage) error {
 	msgencoder := json.NewEncoder(conn)
@@ -105,25 +111,59 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 
 	switch message.Type {
 	case INITIAL:
-		log.Printf("Initial connection request received. Do you accept? (y/n): ")
-		consent := c.getInput()
-		c.sendconsent(conn, &ConsentMessage{
-			Type: INITIALRES,
-			Metadata: map[string]string{
-				"Accepted": fmt.Sprintf("%v", consent),
-			},
-		})
-		store.Getpeermanager().Changeconsent(ipaddress, consent)
+		c.notifychan <- fmt.Sprintf("Consent request from %s. Accept? (y/n):", conn.RemoteAddr().String())
+		select {
+		case response := <-c.notifychan:
+			var consent bool
+			if response == "y" || response == "Y" {
+				fmt.Printf("Response given - %s\n", response)
+				consent = true
+			} else if response == "n" || response == "N" {
+				fmt.Printf("Response given - %s\n", response)
+				consent = false
+			}
+
+			c.sendconsent(conn, &ConsentMessage{
+				Type: INITIALRES,
+				Metadata: map[string]string{
+					"Accepted": fmt.Sprintf("%v", consent),
+				},
+			})
+			store.Getpeermanager().Changeconsent(ipaddress, consent)
+
+		case <-time.After(30 * time.Second): // Timeout after 30 seconds
+			log.Println("No response received in time.")
+			// Optionally, handle timeout case here (e.g., reject consent)
+			return fmt.Errorf("timeout waiting for response from %s", conn.RemoteAddr().String())
+		}
 
 	case FILE:
-		log.Printf("File r equest recived - %v", message)
-		consent := c.getInput()
-		c.sendconsent(conn, &ConsentMessage{
-			Type: FILERES,
-			Metadata: map[string]string{
-				"Accepted": fmt.Sprintf("Consent response - %v", consent),
-			},
-		})
+		log.Printf("File request recived - %v", message)
+		c.notifychan <- fmt.Sprintf("File request recieved %s. Accept? (y/n):", conn.RemoteAddr().String())
+
+		select {
+		case response := <-c.notifychan:
+			var consent bool
+			response = strings.ToLower(response)
+			if response == "y" || response == "yes" {
+				fmt.Printf("Response given - %s\n", response)
+				consent = true
+			} else if response == "n" || response == "no" {
+				fmt.Printf("Response given - %s\n", response)
+				consent = false
+			}
+
+			c.sendconsent(conn, &ConsentMessage{
+				Type: FILERES,
+				Metadata: map[string]string{
+					"Accepted": fmt.Sprintf("Consent response - %v", consent),
+				},
+			})
+
+		case <-time.After(30 * time.Second):
+			log.Println("No response received in time.")
+			return fmt.Errorf("timeout waiting for response from %s", conn.RemoteAddr().String())
+		}
 
 	case INITIALRES, FILERES:
 		consentStr, exists := message.Metadata["Accepted"]
@@ -134,9 +174,10 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 			return fmt.Errorf("missing 'Accepted' key in metadata")
 		}
 		var consent bool
-		if consentStr == "true" || consentStr == "True" || consentStr == "1" {
+		consentStr = strings.ToLower(consentStr)
+		if consentStr == "true" || consentStr == "1" {
 			consent = true
-		} else if consentStr == "false" || consentStr == "False" || consentStr == "0" {
+		} else if consentStr == "false" || consentStr == "0" {
 			consent = false
 		} else {
 			log.Printf("Invalid consent value '%s'. Rejecting.", consentStr)
@@ -155,21 +196,6 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 	}
 
 	return nil
-}
-
-func (cs *Consent) getInput() bool {
-	var input string
-	for {
-		fmt.Scanln(&input)
-		if input == "y" || input == "Y" {
-			fmt.Printf("Response given - %s", input)
-			return true
-		} else if input == "n" || input == "N" {
-			fmt.Printf("Response given - %s", input)
-			return false
-		}
-		fmt.Println("Invalid input. Please enter 'y' or 'n':")
-	}
 }
 
 func (cs *Consent) Sendmessage(ipaddress string, msg *ConsentMessage) error {
@@ -210,9 +236,8 @@ func Getconsent() *Consent {
 	ctx, cancel := context.WithCancel(context.Background())
 	singleton.Do(func() {
 		consent = &Consent{
-			ctx:        ctx,
-			notifychan: make(chan ConsentMessage, 100),
-			cancel:     cancel,
+			ctx:    ctx,
+			cancel: cancel,
 		}
 	})
 	return consent
