@@ -69,11 +69,12 @@ func main() {
 }
 
 func CLI(notifychan chan string) {
-	fmt.Println("Goshare - version 0.1.0")	
+	fmt.Println("Goshare - version 0.1.0")
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		select {
 		case consentpromt := <-notifychan:
+			fmt.Println("Notify channel worked it seems")
 			fmt.Println(consentpromt)
 			fmt.Print("> ")
 			promptres, err := reader.ReadString('\n')

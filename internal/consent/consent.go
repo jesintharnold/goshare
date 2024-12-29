@@ -107,7 +107,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 			err, err, conn, conn.RemoteAddr())
 	}
 
-	log.Printf("received consent request of type: %v, metadata: %v", message.Type, message.Metadata)
+	// log.Printf("received consent request of type: %v, metadata: %v", message.Type, message.Metadata)
 
 	switch message.Type {
 	case INITIAL:
@@ -133,7 +133,6 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 
 		case <-time.After(30 * time.Second): // Timeout after 30 seconds
 			log.Println("No response received in time.")
-			// Optionally, handle timeout case here (e.g., reject consent)
 			return fmt.Errorf("timeout waiting for response from %s", conn.RemoteAddr().String())
 		}
 
