@@ -32,15 +32,27 @@ type ConsentMessage struct {
 }
 
 type Consent struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	notifychan chan string
+	ctx          context.Context
+	cancel       context.CancelFunc
+	notifychan   chan ConsentNotify
+	responsechan chan ConsentResponse
 }
 
 const CONSENTPORT = 42424
 
-func (c *Consent) SetupNotify(notify chan string) {
+type ConsentResponse struct {
+	IP     string
+	Status string
+}
+
+type ConsentNotify struct {
+	IP      string
+	Message string
+}
+
+func (c *Consent) SetupNotify(notify chan ConsentNotify, response chan ConsentResponse) {
 	c.notifychan = notify
+	c.responsechan = response
 }
 
 func (c *Consent) sendconsent(conn net.Conn, msg *ConsentMessage) error {
@@ -107,19 +119,32 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 			err, err, conn, conn.RemoteAddr())
 	}
 
-	// log.Printf("received consent request of type: %v, metadata: %v", message.Type, message.Metadata)
-
+	log.Printf("received consent request of type: %v, metadata: %v", message.Type, message.Metadata)
+	// go func() {
+	// 	for message := range c.notifychan {
+	// 		log.Printf("Received message: %s", message)
+	// 	}
+	// }()
 	switch message.Type {
 	case INITIAL:
-		c.notifychan <- fmt.Sprintf("Consent request from %s. Accept? (y/n):", conn.RemoteAddr().String())
+		fmt.Printf("Consent request from %s. Accept? (y/n):", conn.RemoteAddr().String())
+		c.notifychan <- ConsentNotify{
+			IP:      ipaddress,
+			Message: fmt.Sprintf("Consent request from %s. Accept? (y/n):", conn.RemoteAddr().String()),
+		}
+		log.Println("Notification sent to channel")
+
 		select {
-		case response := <-c.notifychan:
+		case response := <-c.responsechan:
+			res_status := strings.ToLower(response.Status)
+			res_ip := response.IP
+			log.Println("I am a bitch")
 			var consent bool
-			if response == "y" || response == "Y" {
-				fmt.Printf("Response given - %s\n", response)
+			if res_status == "y" || res_status == "yes" {
+				fmt.Printf("Response given - %s\n", res_status)
 				consent = true
-			} else if response == "n" || response == "N" {
-				fmt.Printf("Response given - %s\n", response)
+			} else if res_status == "n" || res_status == "no" {
+				fmt.Printf("Response given - %s\n", res_status)
 				consent = false
 			}
 
@@ -129,7 +154,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 					"Accepted": fmt.Sprintf("%v", consent),
 				},
 			})
-			store.Getpeermanager().Changeconsent(ipaddress, consent)
+			store.Getpeermanager().Changeconsent(res_ip, consent)
 
 		case <-time.After(30 * time.Second): // Timeout after 30 seconds
 			log.Println("No response received in time.")
@@ -138,17 +163,22 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 
 	case FILE:
 		log.Printf("File request recived - %v", message)
-		c.notifychan <- fmt.Sprintf("File request recieved %s. Accept? (y/n):", conn.RemoteAddr().String())
+		c.notifychan <- ConsentNotify{
+			IP:      ipaddress,
+			Message: fmt.Sprintf("Consent request from %s. Accept? (y/n):", conn.RemoteAddr().String()),
+		}
 
 		select {
-		case response := <-c.notifychan:
+		case response := <-c.responsechan:
+			res_status := strings.ToLower(response.Status)
+			_ = response.IP
+			log.Println("I am a bitch")
 			var consent bool
-			response = strings.ToLower(response)
-			if response == "y" || response == "yes" {
-				fmt.Printf("Response given - %s\n", response)
+			if res_status == "y" || res_status == "yes" {
+				fmt.Printf("Response given - %s\n", res_status)
 				consent = true
-			} else if response == "n" || response == "no" {
-				fmt.Printf("Response given - %s\n", response)
+			} else if res_status == "n" || res_status == "no" {
+				fmt.Printf("Response given - %s\n", res_status)
 				consent = false
 			}
 
@@ -166,6 +196,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 
 	case INITIALRES, FILERES:
 		consentStr, exists := message.Metadata["Accepted"]
+		fmt.Printf("Initial response  - %v", message)
 		fmt.Printf("consent status we requested bitch - %v", consentStr)
 		if !exists {
 			log.Printf("Consent response from %s , Rejecting...", ipaddress)
@@ -186,7 +217,6 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 		store.Getpeermanager().Changeconsent(ipaddress, consent)
 		fmt.Fprintf(os.Stdout, "Consent status for peer %s updated to %v", ipaddress, consent)
 
-		//c.notifychan <- message
 	case ERROR:
 		return fmt.Errorf("unknown error occured %v", message)
 

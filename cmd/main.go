@@ -21,8 +21,8 @@ func main() {
 	stopchan := make(chan os.Signal, 1)
 	signal.Notify(stopchan, os.Interrupt, syscall.SIGTERM)
 
-	notifychan := make(chan string, 10)
-
+	notifychan := make(chan consent.ConsentNotify, 10)
+	responsechan := make(chan consent.ConsentResponse, 10)
 	manager := store.Getpeermanager()
 	if manager == nil {
 		log.Fatal("Failed to initialize peer manager")
@@ -33,7 +33,7 @@ func main() {
 	}
 
 	//we are injecting the notify channel
-	cons.SetupNotify(notifychan)
+	cons.SetupNotify(notifychan, responsechan)
 
 	qListener, qSender := transfer.Getfileshare()
 	if qListener == nil || qSender == nil {
@@ -55,10 +55,10 @@ func main() {
 	}()
 
 	wg.Add(1)
-	go func(notifychan chan string) {
+	go func(notifychan chan consent.ConsentNotify, responsechan chan consent.ConsentResponse) {
 		defer wg.Done()
-		CLI(notifychan)
-	}(notifychan)
+		CLI(notifychan, responsechan)
+	}(notifychan, responsechan)
 
 	<-stopchan
 	log.Println("Shutdown signal received, cleaning up...")
@@ -68,14 +68,14 @@ func main() {
 	log.Println("Shutdown complete")
 }
 
-func CLI(notifychan chan string) {
+func CLI(notify chan consent.ConsentNotify, responsechan chan consent.ConsentResponse) {
 	fmt.Println("Goshare - version 0.1.0")
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		select {
-		case consentpromt := <-notifychan:
+		case consentpromt := <-notify:
 			fmt.Println("Notify channel worked it seems")
-			fmt.Println(consentpromt)
+			fmt.Println(consentpromt.Message)
 			fmt.Print("> ")
 			promptres, err := reader.ReadString('\n')
 			if err != nil {
@@ -89,7 +89,10 @@ func CLI(notifychan chan string) {
 				continue
 			}
 
-			notifychan <- promptres
+			responsechan <- consent.ConsentResponse{
+				IP:     consentpromt.IP,
+				Status: promptres,
+			}
 
 		default:
 			fmt.Print("> ")
