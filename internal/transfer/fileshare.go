@@ -25,10 +25,6 @@ const (
 	QUIC_PORT     int    = 42425
 )
 
-// Listen for connections
-// If exist , check whether the consent is there, if not send as no consent is there
-// + Look for file consent , if exists then proceed to add the quic connection and recive the file please
-
 type QListener struct {
 }
 

@@ -64,7 +64,7 @@ func main() {
 	log.Println("Shutdown signal received, cleaning up...")
 	cancel()
 	wg.Wait()
-	os.Exit(1)
+	os.Exit(0)
 	log.Println("Shutdown complete")
 }
 
