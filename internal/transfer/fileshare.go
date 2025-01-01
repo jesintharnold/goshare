@@ -197,13 +197,12 @@ func (q *QSender) getConnection(ipaddress string) quic.Connection {
 		return peer.QuicConn
 	}
 	peeraddress := fmt.Sprintf("%s:%d", ipaddress, QUIC_PORT)
-	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
-	fmt.Println("Certificates : ", certificate)
-	if err != nil {
-		log.Printf("Erro loading certificates : %v", err)
-	}
+	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
+	// fmt.Println("Certificates : ", certificate)
+	// if err != nil {
+	// 	log.Printf("Erro loading certificates : %v", err)
+	// }
 	tlsConfig := &tls.Config{
-		// Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"quic-test"},
 	}
