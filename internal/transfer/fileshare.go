@@ -33,6 +33,7 @@ func (q *QListener) QUICListener(ctx context.Context) error {
 	listenAddr := fmt.Sprintf(":%d", QUIC_PORT)
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true, // For testing only
+		NextProtos:         []string{"quic-test"},
 	}
 
 	listener, err := quic.ListenAddr(listenAddr, tlsConfig, nil)
@@ -197,12 +198,14 @@ func (q *QSender) getConnection(ipaddress string) quic.Connection {
 	}
 	peeraddress := fmt.Sprintf("%s:%d", ipaddress, QUIC_PORT)
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
+	fmt.Println("Certificates : ", certificate)
 	if err != nil {
 		log.Printf("Erro loading certificates : %v", err)
 	}
 	tlsConfig := &tls.Config{
-		Certificates:       []tls.Certificate{certificate},
+		// Certificates:       []tls.Certificate{certificate},
 		InsecureSkipVerify: true,
+		NextProtos:         []string{"quic-test"},
 	}
 
 	quicConfig := &quic.Config{
