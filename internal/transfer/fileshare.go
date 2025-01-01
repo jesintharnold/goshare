@@ -207,14 +207,15 @@ func (q *QSender) getConnection(ipaddress string) quic.Connection {
 		NextProtos:         []string{"quic-test"},
 	}
 
-	quicConfig := &quic.Config{
+	_ = &quic.Config{
 		KeepAlivePeriod: 10 * time.Second,
 		MaxIdleTimeout:  30 * time.Second,
 	}
-	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, quicConfig)
+
+	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, nil)
 
 	if err != nil {
-		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err)
+		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err.Error())
 		return nil
 	}
 
