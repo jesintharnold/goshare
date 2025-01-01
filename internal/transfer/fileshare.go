@@ -205,6 +205,7 @@ func (q *QSender) getConnection(ipaddress string) quic.Connection {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"quic-test"},
+		ServerName:         ipaddress,
 	}
 
 	_ = &quic.Config{
@@ -268,8 +269,13 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 	}
 
 	conn := q.getConnection(ipaddress)
+
+	if conn == nil {
+		fmt.Print("connection is nil")
+	}
+
 	fmt.Fprintf(os.Stdout, "Sending file - %s , to the client - %s", filePath, ipaddress)
-	file, err := os.Open(filePath)
+	file, err := os.Open("F:\\GO_PROJECTS\\goshare\\cmd\\linkedin.png")
 
 	if err != nil {
 		if os.IsNotExist(err) {
