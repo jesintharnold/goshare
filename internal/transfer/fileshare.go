@@ -13,15 +13,23 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"time"
+
+	"crypto/rand"
 
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
-	"golang.org/x/exp/rand"
+	exp "golang.org/x/exp/rand"
 )
 
 const (
-	clientcertDIR string = "CERT"
+	clientcertDIR string = "certs"
 	QUIC_PORT     int    = 42425
 )
 
@@ -31,12 +39,23 @@ type QListener struct {
 func (q *QListener) QUICListener(ctx context.Context) error {
 	log.Println("QUIC listener started, Waiting for incoming connections...")
 	listenAddr := fmt.Sprintf(":%d", QUIC_PORT)
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true, // For testing only
-		NextProtos:         []string{"quic-test"},
+	// tlsConfig := &tls.Config{
+	// 	InsecureSkipVerify: true, // For testing only
+	// 	NextProtos:         []string{"quic-test"},
+	// }
+
+	tlsConfig, err := q.generateTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to generate TLS config: %v", err)
 	}
 
-	listener, err := quic.ListenAddr(listenAddr, tlsConfig, nil)
+	quicConfig := &quic.Config{
+		KeepAlivePeriod: 10 * time.Second,
+		MaxIdleTimeout:  30 * time.Second,
+		EnableDatagrams: true,
+	}
+
+	listener, err := quic.ListenAddr(listenAddr, tlsConfig, quicConfig)
 	if err != nil {
 		return fmt.Errorf("error while attempting to listen on QUIC :%v", err)
 	}
@@ -148,6 +167,57 @@ func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 	return nil
 }
 
+func (q *QListener) generateTLSConfig() (*tls.Config, error) {
+	// Generate private key
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Goshare"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour * 24 * 180), // Valid for 180 days
+		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageServerAuth,
+			x509.ExtKeyUsageClientAuth,
+		},
+		BasicConstraintsValid: true,
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// PEM encode the certificate and private key
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+	keyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+
+	// Load the certificate
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		NextProtos:   []string{"quic-file-transfer"},
+	}, nil
+}
+
 func (q *QListener) createFile(filename string) (*os.File, error) {
 	filePath := "C:\\Users\\jesin\\Downloads"
 	extenstion := filepath.Ext(filename)
@@ -160,7 +230,7 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 	}
 	retry_count := 5
 	for retry_count > 0 {
-		newName := fmt.Sprintf("%s-%d%s", filename, rand.Intn(10000), extenstion)
+		newName := fmt.Sprintf("%s-%d%s", filename, exp.Intn(10000), extenstion)
 		newFilePath := filepath.Join(filePath, newName)
 		file, err := os.Create(newFilePath)
 
@@ -178,7 +248,7 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 type QSender struct {
 }
 
-func (q *QSender) getConnection(ipaddress string) quic.Connection {
+func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 	peer, err := store.Getpeermanager().Getpeer(ipaddress)
 	if err != nil {
 		log.Println(err)
@@ -202,18 +272,41 @@ func (q *QSender) getConnection(ipaddress string) quic.Connection {
 	// if err != nil {
 	// 	log.Printf("Erro loading certificates : %v", err)
 	// }
-	tlsConfig := &tls.Config{
-		InsecureSkipVerify: true,
-		NextProtos:         []string{"quic-test"},
-		ServerName:         ipaddress,
+
+	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "peerA.crt"), filepath.Join(clientcertDIR, "peerA.key"))
+	// if err != nil {
+	// 	log.Printf("Erro loading certificates : %v", err)
+	// }
+	// tlsConfig := &tls.Config{
+	// 	InsecureSkipVerify: true,
+	// 	NextProtos:         []string{"quic-test"},
+	// 	Certificates:       []tls.Certificate{certificate},
+	// }
+
+	// quicConfig := &quic.Config{
+	// 	KeepAlivePeriod: 10 * time.Second,
+	// 	MaxIdleTimeout:  30 * time.Second,
+	// }
+
+	tlsConfig, err := q.generateTLSConfig()
+	if err != nil {
+		log.Printf("Failed to generate TLS config: %v", err)
+		return nil
 	}
 
-	_ = &quic.Config{
+	// Add these settings
+	tlsConfig.InsecureSkipVerify = true
+	tlsConfig.ServerName = ipaddress
+
+	quicConfig := &quic.Config{
 		KeepAlivePeriod: 10 * time.Second,
 		MaxIdleTimeout:  30 * time.Second,
+		EnableDatagrams: true,
 	}
 
-	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, nil)
+	fmt.Print(quicConfig)
+	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, quicConfig)
+	fmt.Println(conn)
 
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err.Error())
@@ -224,6 +317,57 @@ func (q *QSender) getConnection(ipaddress string) quic.Connection {
 
 	peer.QuicConn = conn
 	return conn
+}
+
+func (q *QSender) generateTLSConfig() (*tls.Config, error) {
+	// Generate private key
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Goshare"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(time.Hour * 24 * 180), // Valid for 180 days
+		KeyUsage:  x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageServerAuth,
+			x509.ExtKeyUsageClientAuth,
+		},
+		BasicConstraintsValid: true,
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return nil, err
+	}
+
+	// PEM encode the certificate and private key
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})
+	keyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+
+	// Load the certificate
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		NextProtos:   []string{"quic-file-transfer"},
+	}, nil
 }
 
 func (q *QSender) prevalidation(ipaddress string) bool {
@@ -268,7 +412,7 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 		return nil
 	}
 
-	conn := q.getConnection(ipaddress)
+	conn := q.GetConnection(ipaddress)
 
 	if conn == nil {
 		fmt.Print("connection is nil")
