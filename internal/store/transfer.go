@@ -11,7 +11,7 @@ import (
 type Peer struct {
 	ID          string
 	IP          string
-	QuicConn    quic.Connection
+	QuicConn    *quic.Connection
 	FileSession *SessionManager
 	TCPConn     net.Conn
 	Consent     bool

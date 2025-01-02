@@ -39,11 +39,6 @@ type QListener struct {
 func (q *QListener) QUICListener(ctx context.Context) error {
 	log.Println("QUIC listener started, Waiting for incoming connections...")
 	listenAddr := fmt.Sprintf(":%d", QUIC_PORT)
-	// tlsConfig := &tls.Config{
-	// 	InsecureSkipVerify: true, // For testing only
-	// 	NextProtos:         []string{"quic-test"},
-	// }
-
 	tlsConfig, err := q.generateTLSConfig()
 	if err != nil {
 		return fmt.Errorf("failed to generate TLS config: %v", err)
@@ -96,7 +91,7 @@ func (q *QListener) handleIncomingStreams(quiccon quic.Connection, ip string, ct
 		log.Printf("Accepting QUIC connections, Address - %s Stream - %v", quiccon.RemoteAddr(), stream.StreamID())
 		log.Printf("QUIC Identified IP - %s", ip)
 		if err != nil {
-			log.Printf("Failed to accept QUIC connection: %v", err)
+			log.Printf("Failed to accept QUIC connection: %v", err.Error())
 			continue
 		}
 
@@ -219,7 +214,7 @@ func (q *QListener) generateTLSConfig() (*tls.Config, error) {
 }
 
 func (q *QListener) createFile(filename string) (*os.File, error) {
-	filePath := "C:\\Users\\jesin\\Downloads"
+	filePath := "//data//projects//goshare"
 	extenstion := filepath.Ext(filename)
 	basename := filepath.Base(filename)
 	filename = basename[:len(basename)-len(extenstion)]
@@ -228,7 +223,7 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 	if err == nil {
 		return file, nil
 	}
-	retry_count := 5
+	retry_count := 3
 	for retry_count > 0 {
 		newName := fmt.Sprintf("%s-%d%s", filename, exp.Intn(10000), extenstion)
 		newFilePath := filepath.Join(filePath, newName)
@@ -254,7 +249,8 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 		log.Println(err)
 	}
 	if peer == nil {
-		peer := &store.Peer{
+		fmt.Println("Peer does not exist , Adding to Peer Manager")
+		peer = &store.Peer{
 			IP:          ipaddress,
 			ID:          uuid.New().String(),
 			FileSession: store.NewSession(),
@@ -264,30 +260,9 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 			log.Printf("Failed to add peer to peer manager: %v", err)
 		}
 	} else if peer.QuicConn != nil {
-		return peer.QuicConn
+		return *peer.QuicConn
 	}
 	peeraddress := fmt.Sprintf("%s:%d", ipaddress, QUIC_PORT)
-	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "client.crt"), filepath.Join(clientcertDIR, "client.key"))
-	// fmt.Println("Certificates : ", certificate)
-	// if err != nil {
-	// 	log.Printf("Erro loading certificates : %v", err)
-	// }
-
-	// certificate, err := tls.LoadX509KeyPair(filepath.Join(clientcertDIR, "peerA.crt"), filepath.Join(clientcertDIR, "peerA.key"))
-	// if err != nil {
-	// 	log.Printf("Erro loading certificates : %v", err)
-	// }
-	// tlsConfig := &tls.Config{
-	// 	InsecureSkipVerify: true,
-	// 	NextProtos:         []string{"quic-test"},
-	// 	Certificates:       []tls.Certificate{certificate},
-	// }
-
-	// quicConfig := &quic.Config{
-	// 	KeepAlivePeriod: 10 * time.Second,
-	// 	MaxIdleTimeout:  30 * time.Second,
-	// }
-
 	tlsConfig, err := q.generateTLSConfig()
 	if err != nil {
 		log.Printf("Failed to generate TLS config: %v", err)
@@ -303,10 +278,7 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 		MaxIdleTimeout:  30 * time.Second,
 		EnableDatagrams: true,
 	}
-
-	fmt.Print(quicConfig)
 	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, quicConfig)
-	fmt.Println(conn)
 
 	if err != nil {
 		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err.Error())
@@ -315,8 +287,9 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 
 	log.Printf("Successfully connected to the QUIC peer - %s", peeraddress)
 
-	peer.QuicConn = conn
+	peer.QuicConn = &conn
 	return conn
+
 }
 
 func (q *QSender) generateTLSConfig() (*tls.Config, error) {
@@ -325,8 +298,6 @@ func (q *QSender) generateTLSConfig() (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// Create certificate template
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{

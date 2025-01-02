@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	context, cancel := context.WithCancel(context.Background())
+	_, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	stopchan := make(chan os.Signal, 1)
 	signal.Notify(stopchan, os.Interrupt, syscall.SIGTERM)
@@ -51,7 +51,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		qListener.QUICListener(context)
+		// qListener.QUICListener(context)
 	}()
 
 	wg.Add(1)
