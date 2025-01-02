@@ -105,7 +105,7 @@ func (q *QListener) handleIncomingStreams(quiccon quic.Connection, ip string, ct
 
 func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 	defer stream.Close()
-	metaBuffer := make([]byte, 1024)
+	metaBuffer := make([]byte, 4096)
 	metastreamsize, err := stream.Read(metaBuffer)
 	if err != nil && err != io.EOF {
 		log.Printf("Error reading metadata: %v", err)
@@ -134,7 +134,7 @@ func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 		return err
 	}
 
-	fileBuffer := make([]byte, 1024*1024*1)
+	fileBuffer := make([]byte, 1024*1024*4)
 	var totalbyterec int64
 	for {
 		n, err := stream.Read(fileBuffer)
