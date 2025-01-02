@@ -217,7 +217,7 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 	filePath := "//data//projects//goshare"
 	extenstion := filepath.Ext(filename)
 	basename := filepath.Base(filename)
-	filename = basename[:len(basename)-len(extenstion)]
+	filenamewithoutext := basename[:len(basename)-len(extenstion)]
 
 	file, err := os.Create(filepath.Join(filePath, filename))
 	if err == nil {
@@ -225,7 +225,7 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 	}
 	retry_count := 3
 	for retry_count > 0 {
-		newName := fmt.Sprintf("%s-%d%s", filename, exp.Intn(10000), extenstion)
+		newName := fmt.Sprintf("%s-%d%s", filenamewithoutext, exp.Intn(10000), extenstion)
 		newFilePath := filepath.Join(filePath, newName)
 		file, err := os.Create(newFilePath)
 
@@ -390,7 +390,7 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 	}
 
 	fmt.Fprintf(os.Stdout, "Sending file - %s , to the client - %s", filePath, ipaddress)
-	file, err := os.Open("F:\\GO_PROJECTS\\goshare\\cmd\\linkedin.png")
+	file, err := os.Open(filePath)
 
 	if err != nil {
 		if os.IsNotExist(err) {
