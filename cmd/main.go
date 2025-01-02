@@ -54,14 +54,14 @@ func main() {
 		qListener.QUICListener(context)
 	}()
 
-	// wg.Add(1)
-	// go func(notifychan chan consent.ConsentNotify, responsechan chan consent.ConsentResponse) {
-	// 	defer wg.Done()
-	// 	CLI(notifychan, responsechan)
-	// }(notifychan, responsechan)
+	wg.Add(1)
+	go func(notifychan chan consent.ConsentNotify, responsechan chan consent.ConsentResponse) {
+		defer wg.Done()
+		CLI(notifychan, responsechan)
+	}(notifychan, responsechan)
 
-	A := qSender.GetConnection("192.168.0.104")
-	fmt.Println("MANNY - ", A)
+	// A := qSender.GetConnection("192.168.0.104")
+	// fmt.Println("MANNY - ", A)
 
 	<-stopchan
 	log.Println("Shutdown signal received, cleaning up...")
