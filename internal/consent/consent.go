@@ -144,6 +144,12 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 				consent = false
 			}
 
+			conn, err := net.Dial("tcp", ipaddress)
+			if err != nil {
+				log.Println(err)
+				return err
+			}
+			fmt.Println("Sending the consent we see if this is working")
 			c.sendconsent(conn, &ConsentMessage{
 				Type: INITIALRES,
 				Metadata: map[string]string{
@@ -177,11 +183,6 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 				consent = false
 			}
 
-			conn, err := net.Dial("tcp", ipaddress)
-			if err != nil {
-				log.Println(err)
-				return err
-			}
 			c.sendconsent(conn, &ConsentMessage{
 				Type: FILERES,
 				Metadata: map[string]string{
