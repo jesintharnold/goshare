@@ -120,11 +120,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 	}
 
 	log.Printf("received consent request of type: %v, metadata: %v", message.Type, message.Metadata)
-	// go func() {
-	// 	for message := range c.notifychan {
-	// 		log.Printf("Received message: %s", message)
-	// 	}
-	// }()
+
 	switch message.Type {
 	case INITIAL:
 		fmt.Printf("Consent request from %s. Accept? (y/n):", conn.RemoteAddr().String())
@@ -195,8 +191,8 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 		}
 
 	case INITIALRES, FILERES:
-		consentStr, exists := message.Metadata["Accepted"]
 		fmt.Printf("Initial response  - %v", message)
+		consentStr, exists := message.Metadata["Accepted"]
 		fmt.Printf("consent status we requested bitch - %v", consentStr)
 		if !exists {
 			log.Printf("Consent response from %s , Rejecting...", ipaddress)
