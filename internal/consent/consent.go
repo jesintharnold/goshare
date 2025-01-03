@@ -144,7 +144,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 				consent = false
 			}
 
-			conn, err := net.Dial("tcp", ipaddress)
+			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", res_ip, CONSENTPORT))
 			if err != nil {
 				log.Println(err)
 				return err
@@ -173,7 +173,7 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 		select {
 		case response := <-c.responsechan:
 			res_status := strings.ToLower(response.Status)
-			ipaddress = response.IP
+			_ = response.IP
 			var consent bool
 			if res_status == "y" || res_status == "yes" {
 				fmt.Printf("Response given - %s\n", res_status)
