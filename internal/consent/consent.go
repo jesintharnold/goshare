@@ -144,13 +144,13 @@ func (c *Consent) handleIncomingconsent(conn net.Conn, ipaddress string) error {
 				consent = false
 			}
 
-			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", res_ip, CONSENTPORT))
+			// conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", res_ip, CONSENTPORT))
+			peer, err := store.Getpeermanager().Getpeer(res_ip)
 			if err != nil {
 				log.Println(err)
 				return err
 			}
-			fmt.Println("Sending the consent we see if this is working")
-			c.sendconsent(conn, &ConsentMessage{
+			c.sendconsent(peer.TCPConn, &ConsentMessage{
 				Type: INITIALRES,
 				Metadata: map[string]string{
 					"Accepted": fmt.Sprintf("%v", consent),
