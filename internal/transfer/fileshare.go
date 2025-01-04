@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"goshare/internal/consent"
+	"goshare/internal/errors"
 	"goshare/internal/store"
 	"io"
 	"log"
@@ -37,11 +38,10 @@ type QListener struct {
 }
 
 func (q *QListener) QUICListener(ctx context.Context) error {
-	log.Println("QUIC listener started, Waiting for incoming connections...")
 	listenAddr := fmt.Sprintf(":%d", QUIC_PORT)
 	tlsConfig, err := q.generateTLSConfig()
 	if err != nil {
-		return fmt.Errorf("failed to generate TLS config: %v", err)
+		return errors.NewError(errors.ErrConnection, errors.WARNING, "QUIC", "failed to generate TLS config", err)
 	}
 
 	quicConfig := &quic.Config{
@@ -52,28 +52,25 @@ func (q *QListener) QUICListener(ctx context.Context) error {
 
 	listener, err := quic.ListenAddr(listenAddr, tlsConfig, quicConfig)
 	if err != nil {
-		return fmt.Errorf("error while attempting to listen on QUIC :%v", err)
+		return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "error while attempting to listen on QUIC connection", err)
+
 	}
-	go func(listener *quic.Listener) {
+	go func(listener *quic.Listener) error {
 		defer listener.Close()
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("Received stop signal, shutting down QUIC listener")
-				return
+				return errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("shutdown signal recieved - %s", time.Now()), nil)
 			default:
 				quiccon, err := listener.Accept(ctx)
 				if err != nil {
-					log.Printf("Failed to accept QUIC connection: %v", err)
+					errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("Failed to accept QUIC connection: %s", quiccon.RemoteAddr().String()), err)
 					continue
 				}
-				log.Printf("Connection accepted from %v", quiccon.RemoteAddr())
 				ipaddress, _, err := net.SplitHostPort(quiccon.RemoteAddr().String())
 				if err != nil {
-					fmt.Printf("Error while extracting IP address for quic connection %v", err)
+					errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Error while extracting IP address for quic connection", err)
 				}
-
-				// After accepting connecting connection now we need to look for new streams
 				go func(quiccon quic.Connection, ip string) {
 					defer quiccon.CloseWithError(0, "connection closed")
 					q.handleIncomingStreams(quiccon, ip, ctx)
@@ -88,17 +85,15 @@ func (q *QListener) QUICListener(ctx context.Context) error {
 func (q *QListener) handleIncomingStreams(quiccon quic.Connection, ip string, ctx context.Context) {
 	for {
 		stream, err := quiccon.AcceptStream(ctx)
-		log.Printf("Accepting QUIC connections, Address - %s Stream - %v", quiccon.RemoteAddr(), stream.StreamID())
-		log.Printf("QUIC Identified IP - %s", ip)
+		errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("QUIC connection Address - %s Stream - %v", quiccon.RemoteAddr(), stream.StreamID()), nil)
 		if err != nil {
-			log.Printf("Failed to accept QUIC connection: %v", err.Error())
+			errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Failed to accept QUIC connection", err)
 			continue
 		}
 
 		err = q.receiveFile(stream, ip)
 		if err != nil {
-			log.Printf("Error during file receive - %s, %v", quiccon.RemoteAddr(), stream.StreamID())
-
+			errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error during file receive - %s, %v", quiccon.RemoteAddr(), stream.StreamID()), nil)
 		}
 	}
 }
@@ -108,29 +103,25 @@ func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 	metaBuffer := make([]byte, 4096)
 	metastreamsize, err := stream.Read(metaBuffer)
 	if err != nil && err != io.EOF {
-		log.Printf("Error reading metadata: %v", err)
-		return err
+		return errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", fmt.Sprintf("Error reading metadata: %v", err.Error()), nil)
 	}
 
 	peerinstance, err := store.Getpeermanager().Getpeer(ip)
 	if err != nil {
-		return fmt.Errorf("error from quic receive files %v", err)
+		return errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", fmt.Sprintf("Error reading metadata: %v", err.Error()), nil)
 	}
 
 	//Decoding the metadata here
 	var metadata store.FileInfo
 	if err := json.Unmarshal(metaBuffer[:metastreamsize], &metadata); err != nil {
-		log.Printf("Error unmarshalling metadata : %v", err)
-		return err
+		return errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", fmt.Sprintf("Error unmarshalling JSON DATA: %v", err.Error()), nil)
 	}
-	log.Printf("Receiving file: %s, size: %d bytes", metadata.Filename, metadata.Size)
-
+	errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", fmt.Sprintf("Receiving file: %s, size: %d bytes", metadata.Filename, metadata.Size), nil)
 	transferkey := peerinstance.FileSession.CreateTransfer(metadata, store.RECEIVING)
-
-	//Create a file based on metadata recived
 	file, err := q.createFile(metadata.Filename)
 	if err != nil {
 		log.Printf("Error creating a file: %v", err)
+		
 		return err
 	}
 
@@ -143,22 +134,19 @@ func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 			break
 		}
 		if err != nil {
-			log.Printf("Error reading file data , reciving file: %v", err)
 			peerinstance.FileSession.FailTransfer(transferkey, err)
-			return err
+			return errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", "Error reading file data , reciving file", err)
 		}
 
 		if _, err := file.Write(fileBuffer[:n]); err != nil {
-			log.Printf("Error writing to file: %v", err)
 			peerinstance.FileSession.FailTransfer(transferkey, err)
-			return err
+			return errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", "Error writing to file", err)
 		}
 
 		totalbyterec += int64(n)
 		peerinstance.FileSession.UpdateTransferProgress(transferkey, totalbyterec)
 	}
-
-	log.Printf("File %s saved successfully -", file.Name())
+	errors.NewError(errors.ErrFileTransfer, errors.INFO, "QUIC", fmt.Sprintf("File %s saved successfully -", file.Name()), nil)
 	return nil
 }
 
@@ -230,11 +218,11 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 		file, err := os.Create(newFilePath)
 
 		if err == nil {
-			log.Printf("File already exists, created new file with name: %s", newFilePath)
+			errors.NewError(errors.ErrFileTransfer, errors.INFO, "QUIC", fmt.Sprintf("File already exists, created new file with name: %s", newFilePath), nil)
 			return file, nil
 		}
 		retry_count--
-		log.Printf("Retry failed. Remaining attempts: %d", retry_count)
+		errors.NewError(errors.ErrFileTransfer, errors.INFO, "QUIC", fmt.Sprintf("Retry failed. Remaining attempts: %d", retry_count), nil)
 	}
 	return nil, fmt.Errorf("exceeded retry attempts, could not create file : %s", filename)
 }
@@ -249,7 +237,7 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 		log.Println(err)
 	}
 	if peer == nil {
-		fmt.Println("Peer does not exist , Adding to Peer Manager")
+		errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", "Peer does not exist , Adding to Peer Manager", nil)
 		peer = &store.Peer{
 			IP:          ipaddress,
 			ID:          uuid.New().String(),
@@ -257,7 +245,7 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 		}
 		err = store.Getpeermanager().Addpeer(peer)
 		if err != nil {
-			log.Printf("Failed to add peer to peer manager: %v", err)
+			errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Failed to add peer to peer manager", err)
 		}
 	} else if peer.QuicConn != nil {
 		return *peer.QuicConn
@@ -265,7 +253,7 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 	peeraddress := fmt.Sprintf("%s:%d", ipaddress, QUIC_PORT)
 	tlsConfig, err := q.generateTLSConfig()
 	if err != nil {
-		log.Printf("Failed to generate TLS config: %v", err)
+		errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Failed to generate TLS config", err)
 		return nil
 	}
 
@@ -279,14 +267,11 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 		EnableDatagrams: true,
 	}
 	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, quicConfig)
-
 	if err != nil {
-		log.Printf("Error while attempting to connect to file share QUIC : %s  %v", peeraddress, err.Error())
+		errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error while attempting to connect to file share QUIC : %s", peeraddress), err)
 		return nil
 	}
-
-	log.Printf("Successfully connected to the QUIC peer - %s", peeraddress)
-
+	errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("Successfully connected to the QUIC peer - %s", peeraddress), nil)
 	peer.QuicConn = &conn
 	return conn
 
@@ -379,26 +364,25 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 	validation := q.prevalidation(ipaddress)
 
 	if !validation {
-		log.Printf("No Consent found. Requested %s for consent , try sharing the files after consent", ipaddress)
+		errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("No consent found , requesting consent %s", ipaddress), nil)
 		return nil
 	}
 
 	conn := q.GetConnection(ipaddress)
 
 	if conn == nil {
-		fmt.Print("connection is nil")
+		errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", "Connection is nil", nil)
 	}
 
-	fmt.Fprintf(os.Stdout, "Sending file - %s , to the client - %s", filePath, ipaddress)
+	errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("Sending file - %s , to the client - %s \n", filePath, ipaddress), nil)
+
 	file, err := os.Open(filePath)
 
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("File does not exist in the path %s", filePath)
-			return nil
+			return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("File does not exist in the path %s", filePath), nil)
 		} else {
-			log.Printf("Error opening file path %s , %v", filePath, err)
-			return err
+			return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error opening file path %s", filePath), err)
 		}
 	}
 
@@ -415,30 +399,26 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 
 	Qstream, err := conn.OpenStreamSync(context.Background())
 	if err != nil {
-		log.Printf("Error creating a stream for sending Metadata %v", err)
+		return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Error creating a stream for sending Metadata", err)
 	}
 
 	peer, err := store.Getpeermanager().Getpeer(ipaddress)
 	if err != nil {
-		return err
+		return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Error while fetching data", err)
 	}
 
 	transferkey := peer.FileSession.CreateTransfer(metadata, store.SENDING)
 
 	metaJSON, err := json.Marshal(&metadata)
 	if err != nil {
-		log.Printf("Error while converting the File metadata for sending %v", err)
-		return err
+		return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Error while converting the File metadata for sending", err)
 	}
 
 	_, err = Qstream.Write(metaJSON)
 	if err != nil {
-		log.Printf("Error will sending reading file : %v", err)
-		return err
+		return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Error will sending reading file", err)
 	}
-	log.Printf("Sent metadata for %s,%v", filePath, metaJSON)
-
-	// We are sending now actual files bro
+	errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("Sent metadata for %s,%v", filePath, metaJSON), err)
 	tempfilebuffer := make([]byte, 1*1024*1024)
 	var totalbytesent int64
 	for {
@@ -448,15 +428,13 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 			break
 		}
 		if err != nil {
-			log.Printf("Error will sending reading file : %v", err)
 			peer.FileSession.FailTransfer(transferkey, err)
-			return err
+			return errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", "Error will sending reading file", err)
 		}
 		_, err = Qstream.Write(tempfilebuffer[:n])
 		if err != nil {
-			log.Printf("Error will sending reading file : %v", err)
 			peer.FileSession.FailTransfer(transferkey, err)
-			return err
+			return errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", "Error will sending reading file", err)
 		}
 
 		totalbytesent += int64(n)
@@ -465,10 +443,6 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 	}
 	return nil
 }
-
-// Two singleton process
-// 1 - QListener
-// 2 - QSender
 
 var (
 	QListen   *QListener
