@@ -1,8 +1,6 @@
 package errors
 
 import (
-	"fmt"
-	"os"
 	"time"
 )
 
@@ -50,8 +48,8 @@ func NewError(errtype ErrorType, level ErrorLevel, source string, msg string, ue
 	}
 
 	//we are sending the custom error to the error channel with a buffer of 100
-	// Errorchan <- err
-	fmt.Print("\r\033[K")
-	fmt.Fprint(os.Stdout, msg)
+	Errorchan <- err
+	// fmt.Print("\r\033[K")
+	// fmt.Println(msg)
 	return err
 }

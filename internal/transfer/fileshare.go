@@ -9,7 +9,6 @@ import (
 	"goshare/internal/errors"
 	"goshare/internal/store"
 	"io"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
+	"github.com/schollz/progressbar/v3"
 	exp "golang.org/x/exp/rand"
 )
 
@@ -93,14 +93,15 @@ func (q *QListener) handleIncomingStreams(quiccon quic.Connection, ip string, ct
 
 		err = q.receiveFile(stream, ip)
 		if err != nil {
-			errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error during file receive - %s, %v", quiccon.RemoteAddr(), stream.StreamID()), nil)
+			fmt.Println(err.Error())
+			errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error during file receive - %s, %v \n", quiccon.RemoteAddr(), stream.StreamID()), err)
 		}
 	}
 }
 
 func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 	defer stream.Close()
-	metaBuffer := make([]byte, 4096)
+	metaBuffer := make([]byte, 1024*1024*4)
 	metastreamsize, err := stream.Read(metaBuffer)
 	if err != nil && err != io.EOF {
 		return errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", fmt.Sprintf("Error reading metadata: %v", err.Error()), nil)
@@ -120,10 +121,25 @@ func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 	transferkey := peerinstance.FileSession.CreateTransfer(metadata, store.RECEIVING)
 	file, err := q.createFile(metadata.Filename)
 	if err != nil {
-		log.Printf("Error creating a file: %v", err)
-		
+		//log.Printf("Error creating a file: %v", err)
+
 		return err
 	}
+
+	bar := progressbar.NewOptions64(
+		metadata.Size,
+		progressbar.OptionSetDescription(fmt.Sprintf("Recieving %s from %s", metadata.Filename, ip)),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionSetWidth(30),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
 
 	fileBuffer := make([]byte, 1024*1024*4)
 	var totalbyterec int64
@@ -144,6 +160,7 @@ func (q *QListener) receiveFile(stream quic.Stream, ip string) error {
 		}
 
 		totalbyterec += int64(n)
+		bar.Add(n)
 		peerinstance.FileSession.UpdateTransferProgress(transferkey, totalbyterec)
 	}
 	errors.NewError(errors.ErrFileTransfer, errors.INFO, "QUIC", fmt.Sprintf("File %s saved successfully -", file.Name()), nil)
@@ -202,7 +219,17 @@ func (q *QListener) generateTLSConfig() (*tls.Config, error) {
 }
 
 func (q *QListener) createFile(filename string) (*os.File, error) {
-	filePath := "//data//projects//goshare"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", "Could not get home directory", err)
+	}
+
+	goshareDir := filepath.Join(homeDir, "goshare", "downloads")
+	err = os.MkdirAll(goshareDir, 0755)
+	if err != nil {
+		return nil, errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", "Could not create goshare directory", err)
+	}
+	filePath := filepath.Join(goshareDir, filename)
 	extenstion := filepath.Ext(filename)
 	basename := filepath.Base(filename)
 	filenamewithoutext := basename[:len(basename)-len(extenstion)]
@@ -214,10 +241,13 @@ func (q *QListener) createFile(filename string) (*os.File, error) {
 	retry_count := 3
 	for retry_count > 0 {
 		newName := fmt.Sprintf("%s-%d%s", filenamewithoutext, exp.Intn(10000), extenstion)
-		newFilePath := filepath.Join(filePath, newName)
+		newFilePath := filepath.Join(goshareDir, newName)
 		file, err := os.Create(newFilePath)
 
-		if err == nil {
+		if err != nil {
+			errors.NewError(errors.ErrFileTransfer, errors.INFO, "QUIC", err.Error(), err)
+			return nil, err
+		} else if err == nil {
 			errors.NewError(errors.ErrFileTransfer, errors.INFO, "QUIC", fmt.Sprintf("File already exists, created new file with name: %s", newFilePath), nil)
 			return file, nil
 		}
@@ -234,7 +264,7 @@ type QSender struct {
 func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 	peer, err := store.Getpeermanager().Getpeer(ipaddress)
 	if err != nil {
-		log.Println(err)
+		//log.Println(err)
 	}
 	if peer == nil {
 		errors.NewError(errors.ErrFileTransfer, errors.ERROR, "QUIC", "Peer does not exist , Adding to Peer Manager", nil)
@@ -268,7 +298,7 @@ func (q *QSender) GetConnection(ipaddress string) quic.Connection {
 	}
 	conn, err := quic.DialAddr(context.Background(), peeraddress, tlsConfig, quicConfig)
 	if err != nil {
-		errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error while attempting to connect to file share QUIC : %s", peeraddress), err)
+		errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", fmt.Sprintf("Error while attempting to connect to file share QUIC : %s \n", peeraddress), err)
 		return nil
 	}
 	errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("Successfully connected to the QUIC peer - %s", peeraddress), nil)
@@ -330,7 +360,7 @@ func (q *QSender) prevalidation(ipaddress string) bool {
 	// This function is to do the pre-validation check before sending file
 	peer, err := store.Getpeermanager().Getpeer(ipaddress)
 	if err != nil {
-		log.Printf("Error getting peer: %v", err)
+		//log.Printf("Error getting peer: %v", err)
 		peer = &store.Peer{
 			IP:          ipaddress,
 			ID:          uuid.New().String(),
@@ -339,7 +369,7 @@ func (q *QSender) prevalidation(ipaddress string) bool {
 		}
 		err = store.Getpeermanager().Addpeer(peer)
 		if err != nil {
-			log.Printf("Failed to add peer to peer manager: %v", err)
+			//log.Printf("Failed to add peer to peer manager: %v", err)
 			return false
 		}
 	}
@@ -354,7 +384,7 @@ func (q *QSender) prevalidation(ipaddress string) bool {
 			"name": fmt.Sprintf("%s with %s want to Initate file share", "I am legend", "My IP Address"),
 		},
 	}
-	log.Printf("No consent found , requesting the client %s", ipaddress)
+	//log.Printf("No consent found , requesting the client %s", ipaddress)
 	consent.Getconsent().Sendmessage(ipaddress, &msg)
 	return false
 }
@@ -388,7 +418,7 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 
 	filestats, err := file.Stat()
 	if err != nil {
-		log.Printf("Error getting file info %s: %v", filePath, err)
+		//log.Printf("Error getting file info %s: %v", filePath, err)
 		return err
 	}
 
@@ -418,13 +448,29 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 	if err != nil {
 		return errors.NewError(errors.ErrConnection, errors.ERROR, "QUIC", "Error will sending reading file", err)
 	}
-	errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", fmt.Sprintf("Sent metadata for %s,%v", filePath, metaJSON), err)
-	tempfilebuffer := make([]byte, 1*1024*1024)
+
+	bar := progressbar.NewOptions64(
+		filestats.Size(),
+		progressbar.OptionSetDescription(fmt.Sprintf("Sending %s to %s", filepath.Base(filePath), ipaddress)),
+		progressbar.OptionEnableColorCodes(true),
+		progressbar.OptionSetWidth(30),
+		progressbar.OptionShowCount(),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "█",
+			SaucerHead:    "█",
+			SaucerPadding: "░",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
+
+	tempfilebuffer := make([]byte, 4*1024*1024)
 	var totalbytesent int64
 	for {
 		n, err := file.Read(tempfilebuffer)
 		if err == io.EOF {
 			peer.FileSession.CompleteTransfer(transferkey)
+			bar.Finish()
 			break
 		}
 		if err != nil {
@@ -436,9 +482,8 @@ func (q *QSender) SendFile(ipaddress string, filePath string) error {
 			peer.FileSession.FailTransfer(transferkey, err)
 			return errors.NewError(errors.ErrConnection, errors.INFO, "QUIC", "Error will sending reading file", err)
 		}
-
 		totalbytesent += int64(n)
-		//update total bytes in terms of single byte ot interms of percentage
+		bar.Add(n)
 		peer.FileSession.UpdateTransferProgress(transferkey, totalbytesent)
 	}
 	return nil

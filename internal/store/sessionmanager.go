@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
@@ -88,7 +87,7 @@ func (sm *SessionManager) UpdateTransferProgress(transferID string, bytestransfe
 	transfer.BytesTransferred = bytestransferred
 	transfer.Progress = float64(bytestransferred) / float64(transfer.FileInfo.Size) * 100
 	transfer.Status = TRANSFERRING
-	log.Printf("%s, progress - %.2f%%", transferID, transfer.Progress)
+	//log.Printf("%s, progress - %.2f%%", transferID, transfer.Progress)
 	return nil
 }
 func (sm *SessionManager) CompleteTransfer(transferID string) error {
@@ -101,7 +100,7 @@ func (sm *SessionManager) CompleteTransfer(transferID string) error {
 	transfer.LastUpdateTime = time.Now()
 	transfer.Progress = 100
 	transfer.Status = COMPLETED
-	log.Printf("%s - sent successfully", transferID)
+	//log.Printf("%s - sent successfully", transferID)
 	return nil
 }
 func (sm *SessionManager) FailTransfer(transferID string, err error) error {

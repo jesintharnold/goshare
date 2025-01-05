@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"goshare/internal/consent"
+	"goshare/internal/errors"
 	"goshare/internal/store"
 	"goshare/internal/transfer"
 	"os"
@@ -21,7 +22,6 @@ func printHelp() {
 }
 
 func handleConsentPrompt(reader *bufio.Reader, consentpromt consent.ConsentNotify, responsechan chan consent.ConsentResponse) {
-	fmt.Print("\r\033[K")
 	fmt.Println(consentpromt.Message)
 	promptres, err := reader.ReadString('\n')
 	if err != nil {
@@ -80,33 +80,38 @@ func processCommand(input string) {
 	}
 }
 
-func CLI(notify chan consent.ConsentNotify, responsechan chan consent.ConsentResponse) {
+func CLI(notify chan consent.ConsentNotify, responsechan chan consent.ConsentResponse, inputChan chan string) {
 	fmt.Println("Goshare - version 0.1.0")
 	fmt.Println("Goshare is a P2P file-sharing tool")
 	fmt.Print("\n")
 
 	reader := bufio.NewReader(os.Stdin)
 
-	for {
-		select {
-		case consentpromt := <-notify:
-			go handleConsentPrompt(reader, consentpromt, responsechan)
-		// case errormsg := <-errors.Errorchan:
-		// 	fmt.Print("\r\033[K")
-		// 	fmt.Fprintln(os.Stdout, errormsg.Message)
-		default:
+	go func() {
+		for {
 			fmt.Print("goshare > ")
 			input, err := reader.ReadString('\n')
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error while reading input: %v\n", err)
 				continue
 			}
-
 			input = strings.TrimSpace(input)
-			if input == "" {
-				continue
+			if input != "" {
+				inputChan <- input
 			}
+		}
+	}()
 
+	for {
+		select {
+		case consentpromt := <-notify:
+			// fmt.Print("\r\033[K")
+			handleConsentPrompt(reader, consentpromt, responsechan)
+		case errormsg := <-errors.Errorchan:
+			// fmt.Print("\r\033[K")
+			fmt.Println(errormsg.Message)
+		case input := <-inputChan:
+			// fmt.Print("\r\033[K")
 			processCommand(input)
 		}
 	}
@@ -119,6 +124,7 @@ func Prerun(con context.Context) {
 	defer cancel()
 	notifychan := make(chan consent.ConsentNotify, 10)
 	responsechan := make(chan consent.ConsentResponse, 10)
+	inputChan := make(chan string, 10)
 	stopchan := make(chan os.Signal, 1)
 	var wg sync.WaitGroup
 	var peermanager *store.Peermanager
@@ -157,7 +163,7 @@ func Prerun(con context.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		CLI(notifychan, responsechan)
+		CLI(notifychan, responsechan, inputChan)
 	}()
 
 	<-stopchan
@@ -165,6 +171,7 @@ func Prerun(con context.Context) {
 	cancel()
 	close(notifychan)
 	close(responsechan)
+	close(inputChan)
 	wg.Wait()
 	os.Exit(0)
 }
